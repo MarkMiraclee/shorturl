@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
+	"github.com/go-chi/chi/v5"
 	"io"
 	"math/rand"
 	"net/http"
+	"shorturl/internal/config"
 	"strings"
 	"time"
-	"github.com/go-chi/chi/v5"
 )
 
 type URLStore struct {
@@ -25,7 +26,7 @@ func NewRandomString(size int) string {
 	return string(result)
 }
 
-func handlePost(store *URLStore) http.HandlerFunc {
+func handlePost(store *URLStore, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil || len(body) == 0 {
@@ -44,7 +45,7 @@ func handlePost(store *URLStore) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusCreated)
-		fmt.Fprintf(w, "http://localhost:8080/%s", shortID)
+		fmt.Fprintf(w, "%s/%s", cfg.BaseURL, shortID)
 	}
 }
 
@@ -58,7 +59,7 @@ func handleGet(store *URLStore) http.HandlerFunc {
 
 		originalURL, ok := store.urls[shortID]
 		if !ok {
-			w.WriteHeader(http.StatusBadRequest) // Оставляем как было
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
@@ -68,16 +69,12 @@ func handleGet(store *URLStore) http.HandlerFunc {
 }
 
 func main() {
-	store := &URLStore{
-		urls: make(map[string]string),
-	}
+	cfg := config.Load()
+	store := &URLStore{urls: make(map[string]string)}
 
 	router := chi.NewRouter()
-
-	// Роутинг с Chi
-	router.Post("/", handlePost(store))
+	router.Post("/", handlePost(store, cfg))
 	router.Get("/{shortID}", handleGet(store))
 
-	fmt.Println("Server started on :8080")
-	http.ListenAndServe(":8080", router)
+	http.ListenAndServe(cfg.ServerAddress, router)
 }
