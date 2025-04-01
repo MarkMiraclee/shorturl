@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"github.com/go-chi/chi/v5"
 )
 
 type URLStore struct {
@@ -24,48 +25,45 @@ func NewRandomString(size int) string {
 	return string(result)
 }
 
-func handleURL(store *URLStore) http.HandlerFunc {
+func handlePost(store *URLStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			body, err := io.ReadAll(r.Body)
-			if err != nil || len(body) == 0 {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-
-			originalURL := string(body)
-			if !strings.HasPrefix(originalURL, "http") {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-
-			shortID := NewRandomString(8)
-			store.urls[shortID] = originalURL
-
-			w.Header().Set("Content-Type", "text/plain")
-			w.WriteHeader(http.StatusCreated)
-			fmt.Fprintf(w, "http://localhost:8080/%s", shortID)
-
-		case http.MethodGet:
-			shortID := strings.TrimPrefix(r.URL.Path, "/")
-			if len(shortID) != 8 {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-
-			originalURL, ok := store.urls[shortID]
-			if !ok {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-
-			w.Header().Set("Location", originalURL)
-			w.WriteHeader(http.StatusTemporaryRedirect)
-
-		default:
+		body, err := io.ReadAll(r.Body)
+		if err != nil || len(body) == 0 {
 			w.WriteHeader(http.StatusBadRequest)
+			return
 		}
+
+		originalURL := string(body)
+		if !strings.HasPrefix(originalURL, "http") {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		shortID := NewRandomString(8)
+		store.urls[shortID] = originalURL
+
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprintf(w, "http://localhost:8080/%s", shortID)
+	}
+}
+
+func handleGet(store *URLStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		shortID := chi.URLParam(r, "shortID")
+		if len(shortID) != 8 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		originalURL, ok := store.urls[shortID]
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest) // Оставляем как было
+			return
+		}
+
+		w.Header().Set("Location", originalURL)
+		w.WriteHeader(http.StatusTemporaryRedirect)
 	}
 }
 
@@ -74,7 +72,12 @@ func main() {
 		urls: make(map[string]string),
 	}
 
-	http.HandleFunc("/", handleURL(store))
+	router := chi.NewRouter()
+
+	// Роутинг с Chi
+	router.Post("/", handlePost(store))
+	router.Get("/{shortID}", handleGet(store))
+
 	fmt.Println("Server started on :8080")
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":8080", router)
 }

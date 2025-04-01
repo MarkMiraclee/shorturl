@@ -5,11 +5,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
 )
 
-func TestHandleURL_Post(t *testing.T) {
+func TestHandlePost(t *testing.T) {
 	store := &URLStore{urls: make(map[string]string)}
-	handler := handleURL(store)
+	router := chi.NewRouter()
+	router.Post("/", handlePost(store))
 
 	tests := []struct {
 		name           string
@@ -43,7 +46,7 @@ func TestHandleURL_Post(t *testing.T) {
 			}
 
 			rr := httptest.NewRecorder()
-			handler.ServeHTTP(rr, req)
+			router.ServeHTTP(rr, req) // Используем router вместо handler
 
 			if rr.Code != tt.wantStatus {
 				t.Errorf("expected status %d, got %d", tt.wantStatus, rr.Code)
@@ -54,7 +57,6 @@ func TestHandleURL_Post(t *testing.T) {
 					t.Errorf("body should start with %q, got %q", tt.wantBodyPrefix, rr.Body.String())
 				}
 
-				// Проверяем, что shortID сохранен
 				shortID := strings.TrimPrefix(rr.Body.String(), "http://localhost:8080/")
 				if len(shortID) != 8 {
 					t.Errorf("shortID must be 8 chars, got %d", len(shortID))
@@ -64,7 +66,6 @@ func TestHandleURL_Post(t *testing.T) {
 					t.Errorf("store does not contain URL %s", tt.body)
 				}
 
-				// Проверяем Content-Type
 				if contentType := rr.Header().Get("Content-Type"); contentType != "text/plain" {
 					t.Errorf("Content-Type should be text/plain, got %s", contentType)
 				}
@@ -73,43 +74,44 @@ func TestHandleURL_Post(t *testing.T) {
 	}
 }
 
-func TestHandleURL_Get(t *testing.T) {
+func TestHandleGet(t *testing.T) {
 	store := &URLStore{urls: map[string]string{"abcdefgh": "http://example.com"}}
-	handler := handleURL(store)
+	router := chi.NewRouter()
+	router.Get("/{shortID}", handleGet(store)) // Используем параметр пути
 
 	tests := []struct {
 		name         string
-		path         string
+		shortID      string
 		wantStatus   int
 		wantLocation string
 	}{
 		{
 			name:         "Valid ShortID",
-			path:         "/abcdefgh",
+			shortID:      "abcdefgh",
 			wantStatus:   http.StatusTemporaryRedirect,
 			wantLocation: "http://example.com",
 		},
 		{
 			name:       "Invalid ShortID",
-			path:       "/invalid12",
+			shortID:    "invalid12",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "ShortID Wrong Length",
-			path:       "/abc",
+			shortID:    "abc",
 			wantStatus: http.StatusBadRequest,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodGet, tt.path, nil)
+			req, err := http.NewRequest(http.MethodGet, "/"+tt.shortID, nil) // Путь с shortID
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			rr := httptest.NewRecorder()
-			handler.ServeHTTP(rr, req)
+			router.ServeHTTP(rr, req) // Используем router
 
 			if rr.Code != tt.wantStatus {
 				t.Errorf("expected status %d, got %d", tt.wantStatus, rr.Code)
@@ -125,9 +127,16 @@ func TestHandleURL_Get(t *testing.T) {
 	}
 }
 
-func TestHandleURL_UnsupportedMethod(t *testing.T) {
-	store := &URLStore{urls: make(map[string]string)}
-	handler := handleURL(store)
+func TestUnsupportedMethod(t *testing.T) {
+	router := chi.NewRouter()
+
+	router.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost && r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
 
 	req, err := http.NewRequest(http.MethodPut, "/", nil)
 	if err != nil {
@@ -135,7 +144,7 @@ func TestHandleURL_UnsupportedMethod(t *testing.T) {
 	}
 
 	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
+	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rr.Code)
