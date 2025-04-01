@@ -24,12 +24,8 @@ func NewRandomString(size int) string {
 	return string(result)
 }
 
-func main() {
-	store := &URLStore{
-		urls: make(map[string]string),
-	}
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+func handleURL(store *URLStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
 			body, err := io.ReadAll(r.Body)
@@ -70,8 +66,15 @@ func main() {
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 		}
-	})
+	}
+}
 
+func main() {
+	store := &URLStore{
+		urls: make(map[string]string),
+	}
+
+	http.HandleFunc("/", handleURL(store))
 	fmt.Println("Server started on :8080")
 	http.ListenAndServe(":8080", nil)
 }
