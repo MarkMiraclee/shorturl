@@ -1,20 +1,21 @@
-package main
+package handlers_test
 
 import (
 	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/http/httptest"
 	"shorturl/internal/config"
+	"shorturl/internal/handlers"
 	"strings"
 	"testing"
 )
 
 func TestHandlePost(t *testing.T) {
-	store := &URLStore{urls: make(map[string]string)}
+	store := &handlers.URLStore{URLs: make(map[string]string)}
 	cfg := &config.Config{BaseURL: "http://test"}
 
 	router := chi.NewRouter()
-	router.Post("/", handlePost(store, cfg))
+	router.Post("/", handlers.HandlePost(store, cfg))
 
 	req, _ := http.NewRequest(http.MethodPost, "/", strings.NewReader("http://example.com"))
 	rr := httptest.NewRecorder()
@@ -30,10 +31,10 @@ func TestHandlePost(t *testing.T) {
 }
 
 func TestHandleGet(t *testing.T) {
-	store := &URLStore{urls: map[string]string{"abcdefgh": "http://example.com"}}
+	store := &handlers.URLStore{URLs: map[string]string{"abcdefgh": "http://example.com"}}
 
 	router := chi.NewRouter()
-	router.Get("/{shortID}", handleGet(store))
+	router.Get("/{shortID}", handlers.HandleGet(store))
 
 	req, _ := http.NewRequest(http.MethodGet, "/abcdefgh", nil)
 	rr := httptest.NewRecorder()
