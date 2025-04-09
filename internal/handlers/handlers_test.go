@@ -1,21 +1,58 @@
 package handlers_test
 
 import (
+	"fmt"
 	"github.com/go-chi/chi/v5"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"shorturl/internal/config"
 	"shorturl/internal/handlers"
+	"shorturl/internal/service"
 	"strings"
 	"testing"
 )
 
+// MockURLService заглушка для тестирования.
+type MockURLService struct {
+	URLs map[string]string
+}
+
+func (m *MockURLService) CreateShortURL(originalURL string) (string, error) {
+	shortID := "abcdefgh"
+	m.URLs[shortID] = originalURL
+	return shortID, nil
+}
+
+func (m *MockURLService) GetOriginalURL(shortID string) (string, error) {
+	originalURL, ok := m.URLs[shortID]
+	if !ok {
+		return "", fmt.Errorf("URL not found")
+	}
+	return originalURL, nil
+}
+
+// Проверка, что MockURLService реализует интерфейс service.URLShortener.
+var _ service.URLShortener = (*MockURLService)(nil)
+
+func NewMockURLService() *MockURLService {
+	return &MockURLService{URLs: make(map[string]string)}
+}
+
+func NewHandlers(svc service.URLShortener) *handlers.Handlers {
+	return &handlers.Handlers{
+		Service: svc,
+	}
+}
+
+// TestHandlePost проверяет обработчик POST-запросов.
 func TestHandlePost(t *testing.T) {
-	store := &handlers.URLStore{URLs: make(map[string]string)}
-	cfg := &config.Config{BaseURL: "http://test"}
+	cfg := &config.Config{BaseURL: "http://localhost:8080"}
+	mockSvc := NewMockURLService()
+	h := NewHandlers(mockSvc)
 
 	router := chi.NewRouter()
-	router.Post("/", handlers.HandlePost(store, cfg))
+	router.Post("/", h.HandlePost(cfg))
 
 	req, _ := http.NewRequest(http.MethodPost, "/", strings.NewReader("http://example.com"))
 	rr := httptest.NewRecorder()
@@ -25,16 +62,20 @@ func TestHandlePost(t *testing.T) {
 		t.Errorf("Expected 201, got %d", rr.Code)
 	}
 
-	if !strings.HasPrefix(rr.Body.String(), cfg.BaseURL) {
-		t.Errorf("Expected prefix %s", cfg.BaseURL)
+	body, _ := io.ReadAll(rr.Body)
+	if !strings.HasPrefix(string(body), cfg.BaseURL) {
+		t.Errorf("Expected prefix %s, got %s", cfg.BaseURL, string(body))
 	}
 }
 
+// TestHandleGet проверяет обработчик GET-запросов.
 func TestHandleGet(t *testing.T) {
-	store := &handlers.URLStore{URLs: map[string]string{"abcdefgh": "http://example.com"}}
+	mockSvc := NewMockURLService()
+	mockSvc.URLs = map[string]string{"abcdefgh": "http://example.com"}
+	h := NewHandlers(mockSvc) // Используем MockURLService напрямую
 
 	router := chi.NewRouter()
-	router.Get("/{shortID}", handlers.HandleGet(store))
+	router.Get("/{shortID}", h.HandleGet())
 
 	req, _ := http.NewRequest(http.MethodGet, "/abcdefgh", nil)
 	rr := httptest.NewRecorder()

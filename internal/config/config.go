@@ -8,10 +8,12 @@ import (
 )
 
 type Config struct {
+	BaseURL       string `env:"BASE_URL" envDefault:"http://localhost:8080"`
 	ServerAddress string
-	BaseURL       string
 }
 
+// Load загружает конфигурацию из переменных окружения и флагов командной строки.
+// Приоритет: переменные окружения > флаги > значения по умолчанию.
 func Load() *Config {
 	cfg := &Config{}
 
