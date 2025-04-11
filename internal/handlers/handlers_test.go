@@ -1,6 +1,7 @@
 package handlers_test
 
 import (
+	"context"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"io"
@@ -13,13 +14,13 @@ import (
 	"testing"
 )
 
-// MockURLService заглушка для тестирования.
+// MockURLService заглушка для тестирования, реализует интерфейс service.URLShortener.
 type MockURLService struct {
 	URLs map[string]string
 }
 
 func (m *MockURLService) CreateShortURL(originalURL string) (string, error) {
-	shortID := "abcdefgh"
+	shortID := generateMockShortID()
 	m.URLs[shortID] = originalURL
 	return shortID, nil
 }
@@ -32,9 +33,6 @@ func (m *MockURLService) GetOriginalURL(shortID string) (string, error) {
 	return originalURL, nil
 }
 
-// Проверка, что MockURLService реализует интерфейс service.URLShortener.
-var _ service.URLShortener = (*MockURLService)(nil)
-
 func NewMockURLService() *MockURLService {
 	return &MockURLService{URLs: make(map[string]string)}
 }
@@ -43,6 +41,11 @@ func NewHandlers(svc service.URLShortener) *handlers.Handlers {
 	return &handlers.Handlers{
 		Service: svc,
 	}
+}
+
+// Для генерации предсказуемого короткого ID
+func generateMockShortID() string {
+	return "mockID01"
 }
 
 // TestHandlePost проверяет обработчик POST-запросов.
@@ -59,30 +62,34 @@ func TestHandlePost(t *testing.T) {
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusCreated {
-		t.Errorf("Expected 201, got %d", rr.Code)
+		t.Errorf("Expected %d, got %d", http.StatusCreated, rr.Code)
 	}
 
 	body, _ := io.ReadAll(rr.Body)
-	if !strings.HasPrefix(string(body), cfg.BaseURL) {
-		t.Errorf("Expected prefix %s, got %s", cfg.BaseURL, string(body))
+	expectedPrefix := fmt.Sprintf("%s/%s", cfg.BaseURL, generateMockShortID())
+	if !strings.HasPrefix(string(body), expectedPrefix) {
+		t.Errorf("Expected prefix %s, got %s", expectedPrefix, string(body))
 	}
 }
 
 // TestHandleGet проверяет обработчик GET-запросов.
 func TestHandleGet(t *testing.T) {
 	mockSvc := NewMockURLService()
-	mockSvc.URLs = map[string]string{"abcdefgh": "http://example.com"}
-	h := NewHandlers(mockSvc) // Используем MockURLService напрямую
+	mockSvc.URLs = map[string]string{generateMockShortID(): "http://example.com"}
+	h := NewHandlers(mockSvc)
 
-	router := chi.NewRouter()
-	router.Get("/{shortID}", h.HandleGet())
-
-	req, _ := http.NewRequest(http.MethodGet, "/abcdefgh", nil)
 	rr := httptest.NewRecorder()
-	router.ServeHTTP(rr, req)
+	req := httptest.NewRequest(http.MethodGet, "/"+generateMockShortID(), nil)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("shortID", generateMockShortID())
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	req = req.WithContext(ctx)
+
+	h.HandleGet().ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusTemporaryRedirect {
-		t.Errorf("Expected 307, got %d", rr.Code)
+		t.Errorf("Expected %d, got %d", http.StatusTemporaryRedirect, rr.Code)
 	}
 
 	if rr.Header().Get("Location") != "http://example.com" {

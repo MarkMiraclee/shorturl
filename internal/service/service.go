@@ -1,9 +1,7 @@
 package service
 
 import (
-	"errors"
-	"shorturl/internal/generator"
-	"strings"
+	"shorturl/internal/storage"
 )
 
 // URLShortener определяет интерфейс для сервиса сокращения URL.
@@ -12,41 +10,24 @@ type URLShortener interface {
 	GetOriginalURL(shortID string) (string, error)
 }
 
+// URLService реализует интерфейс URLShortener и содержит бизнес-логику.
 type URLService struct {
-	store map[string]string
-	gen   *generator.RandomGenerator
+	storage storage.URLStorage
 }
 
-// NewURLService создает и возвращает новый экземпляр URLService.
-func NewURLService() *URLService {
+// NewURLService создает новый экземпляр URLService с заданным хранилищем.
+func NewURLService(storage storage.URLStorage) *URLService {
 	return &URLService{
-		store: make(map[string]string),
-		gen:   generator.NewRandomGenerator(),
+		storage: storage,
 	}
 }
 
-// CreateShortURL создает новую короткую ссылку для заданного оригинального URL.
-// Возвращает короткий идентификатор или ошибку, если URL некорректный.
+// CreateShortURL создает новую короткую ссылку и сохраняет ее в хранилище.
 func (s *URLService) CreateShortURL(originalURL string) (string, error) {
-	if !strings.HasPrefix(originalURL, "http") {
-		return "", errors.New("invalid URL format")
-	}
-
-	shortID := s.gen.NewRandomString(8)
-	s.store[shortID] = originalURL
-	return shortID, nil
+	return s.storage.CreateShortURL(originalURL)
 }
 
-// GetOriginalURL возвращает оригинальный URL, связанный с заданным коротким идентификатором.
-// Возвращает оригинальный URL или ошибку, если идентификатор не найден или некорректен.
+// GetOriginalURL получает оригинальный URL из хранилища по короткому идентификатору.
 func (s *URLService) GetOriginalURL(shortID string) (string, error) {
-	if len(shortID) != 8 {
-		return "", errors.New("invalid short ID")
-	}
-
-	originalURL, ok := s.store[shortID]
-	if !ok {
-		return "", errors.New("URL not found")
-	}
-	return originalURL, nil
+	return s.storage.Get(shortID)
 }

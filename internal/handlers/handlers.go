@@ -11,8 +11,9 @@ import (
 	"strings"
 )
 
+// Handlers представляет собой структуру с обработчиками HTTP-запросов.
 type Handlers struct {
-	Service service.URLShortener
+	Service service.URLShortener // Интерфейс сервиса для работы с URL.
 }
 
 // NewHandlers создает и возвращает новый экземпляр Handlers с заданным сервисом.
@@ -25,23 +26,25 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
+			http.Error(w, "Failed to read request body", http.StatusBadRequest)
 			return
 		}
+		defer func() {
+			if err := r.Body.Close(); err != nil {
+				log.Printf("Error closing request body: %v", err)
+			}
+		}()
 
 		originalURL := string(body)
-
-		if !strings.HasPrefix(originalURL, "http") {
-			w.WriteHeader(http.StatusBadRequest)
+		if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
+			http.Error(w, "Invalid URL format", http.StatusBadRequest)
 			return
 		}
-
 		shortID, err := h.Service.CreateShortURL(originalURL)
 		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
+			http.Error(w, "Failed to create short URL", http.StatusBadRequest)
 			return
 		}
-
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusCreated)
 		_, err = fmt.Fprintf(w, "%s/%s", cfg.BaseURL, shortID)
@@ -51,16 +54,26 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 	}
 }
 
-// HandleGet обрабатывает GET-запросы
+// HandleGet обрабатывает GET-запросы с параметром shortID
 func (h *Handlers) HandleGet() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		shortID := chi.URLParam(r, "shortID")
-		originalURL, err := h.Service.GetOriginalURL(shortID)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
+		log.Printf("HandleGet: shortID = %s, h.Service = %v", shortID, h.Service) // Добавьте эту строку
+		if len(shortID) != 8 {
+			http.Error(w, "Invalid short URL format", http.StatusBadRequest)
 			return
 		}
-
+		defer func() {
+			if err := r.Body.Close(); err != nil {
+				log.Printf("Error closing request body: %v", err)
+			}
+		}()
+		originalURL, err := h.Service.GetOriginalURL(shortID)
+		log.Printf("HandleGet: originalURL = %s, err = %v", originalURL, err) // Добавьте эту строку
+		if err != nil {
+			http.Error(w, "Invalid or non-existent short URL", http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Location", originalURL)
 		w.WriteHeader(http.StatusTemporaryRedirect)
 	}
