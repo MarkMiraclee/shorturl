@@ -11,7 +11,6 @@ import (
 type URLStorage interface {
 	CreateShortURL(originalURL string) (string, error)
 	Get(shortID string) (string, error)
-	// Save(shortID string, originalURL string) error // Больше не нужен напрямую
 }
 
 // InMemoryStorage реализует интерфейс URLStorage, используя map в памяти.

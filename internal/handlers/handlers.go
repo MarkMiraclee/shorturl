@@ -58,7 +58,6 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 func (h *Handlers) HandleGet() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		shortID := chi.URLParam(r, "shortID")
-		log.Printf("HandleGet: shortID = %s, h.Service = %v", shortID, h.Service) // Добавьте эту строку
 		if len(shortID) != 8 {
 			http.Error(w, "Invalid short URL format", http.StatusBadRequest)
 			return
@@ -69,7 +68,6 @@ func (h *Handlers) HandleGet() http.HandlerFunc {
 			}
 		}()
 		originalURL, err := h.Service.GetOriginalURL(shortID)
-		log.Printf("HandleGet: originalURL = %s, err = %v", originalURL, err) // Добавьте эту строку
 		if err != nil {
 			http.Error(w, "Invalid or non-existent short URL", http.StatusBadRequest)
 			return
