@@ -18,6 +18,7 @@ import (
 )
 
 func main() {
+	panic("Проверка запуска main()")
 	rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	zapLogger, err := zap.NewProduction()
@@ -33,10 +34,10 @@ func main() {
 	cfg := config.Load()
 
 	var urlStorage storage.URLStorage
-	// if cfg.FileStoragePath != "" {
-	//    urlStorage = storage.NewFileStorage(cfg.FileStoragePath)
-	//    log.Printf("Using file storage at: %s", cfg.FileStoragePath)
-	// } else {
+	 if cfg.FileStoragePath != "" {
+	    urlStorage = storage.NewFileStorage(cfg.FileStoragePath)
+	    log.Printf("Using file storage at: %s", cfg.FileStoragePath)
+	 } else {
 	urlStorage = storage.NewInMemoryStorage()
 	log.Println("Using in-memory storage")
 	// }
