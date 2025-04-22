@@ -19,6 +19,7 @@ import (
 
 func main() {
 	panic("Проверка запуска main()")
+
 	rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	zapLogger, err := zap.NewProduction()
@@ -34,13 +35,13 @@ func main() {
 	cfg := config.Load()
 
 	var urlStorage storage.URLStorage
-	 if cfg.FileStoragePath != "" {
-	    urlStorage = storage.NewFileStorage(cfg.FileStoragePath)
-	    log.Printf("Using file storage at: %s", cfg.FileStoragePath)
-	 } else {
-	urlStorage = storage.NewInMemoryStorage()
-	log.Println("Using in-memory storage")
-	// }
+	if cfg.FileStoragePath != "" {
+		urlStorage = storage.NewFileStorage(cfg.FileStoragePath)
+		log.Printf("Using file storage at: %s", cfg.FileStoragePath)
+	} else {
+		urlStorage = storage.NewInMemoryStorage()
+		log.Println("Using in-memory storage")
+	}
 
 	svc := service.NewURLService(urlStorage)
 	h := handlers.NewHandlers(svc)
@@ -60,7 +61,7 @@ func main() {
 	})
 	r.Get("/{shortID}", h.HandleGet())
 
-	fmt.Printf("Server address from config: %s\n", cfg.ServerAddress) // ПЕРЕНЕСЛИ СЮДА
-	fmt.Printf("Starting server on %s\n", cfg.BaseURL)                // ПЕРЕНЕСЛИ СЮДА
+	fmt.Printf("Server address from config: %s\n", cfg.ServerAddress)
+	fmt.Printf("Starting server on %s\n", cfg.BaseURL)
 	log.Fatal(http.ListenAndServe(cfg.ServerAddress, r))
 }
