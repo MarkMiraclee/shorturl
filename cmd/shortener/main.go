@@ -18,7 +18,6 @@ import (
 )
 
 func main() {
-	panic("Проверка запуска main()")
 
 	rand.New(rand.NewSource(time.Now().UnixNano()))
 
