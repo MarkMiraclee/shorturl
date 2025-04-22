@@ -59,7 +59,7 @@ func main() {
 	})
 	r.Get("/{shortID}", h.HandleGet())
 
-	fmt.Printf("Server address from config: %s\n", cfg.ServerAddress)
-	fmt.Printf("Starting server on %s\n", cfg.BaseURL)
+	fmt.Printf("Server address from config: %s\n", cfg.ServerAddress) // ПЕРЕНЕСЛИ СЮДА
+	fmt.Printf("Starting server on %s\n", cfg.BaseURL)                // ПЕРЕНЕСЛИ СЮДА
 	log.Fatal(http.ListenAndServe(cfg.ServerAddress, r))
 }
