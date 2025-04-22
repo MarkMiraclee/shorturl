@@ -1,0 +1,80 @@
+package middleware
+
+import (
+	"compress/gzip"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+)
+
+type gzipResponseWriter struct {
+	io.Writer
+	http.ResponseWriter
+}
+
+func (w gzipResponseWriter) Header() http.Header {
+	return w.ResponseWriter.Header()
+}
+
+func (w gzipResponseWriter) Write(b []byte) (int, error) {
+	return w.Writer.Write(b)
+}
+
+func (w gzipResponseWriter) Flush() {
+	if f, ok := w.Writer.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// GzipResponse middleware сжимает ответы
+func GzipResponse(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		contentType := w.Header().Get("Content-Type")
+		if !strings.HasPrefix(contentType, "application/json") && !strings.HasPrefix(contentType, "text/html") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		gz, err := gzip.NewWriterLevel(w, gzip.BestCompression)
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		defer func() {
+			if err := gz.Close(); err != nil {
+				log.Printf("Error closing gzip writer: %v", err)
+			}
+		}()
+
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Del("Content-Length") // Content-Length нужно удалить, т.к. сжатый размер отличается
+
+		next.ServeHTTP(gzipResponseWriter{Writer: gz, ResponseWriter: w}, r)
+	})
+}
+
+// GzipRequest middleware распаковывает тело запроса
+func GzipRequest(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			gz, err := gzip.NewReader(r.Body)
+			if err != nil {
+				http.Error(w, "Failed to decompress request body", http.StatusBadRequest)
+				return
+			}
+			r.Body = gz
+			defer func() {
+				if err := gz.Close(); err != nil {
+					log.Printf("Error closing gzip reader: %v", err)
+				}
+			}()
+		}
+		next.ServeHTTP(w, r)
+	})
+}
