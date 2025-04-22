@@ -17,9 +17,7 @@ type URLService struct {
 
 // NewURLService создает новый экземпляр URLService с заданным хранилищем.
 func NewURLService(storage storage.URLStorage) *URLService {
-	return &URLService{
-		storage: storage,
-	}
+	return &URLService{storage: storage}
 }
 
 // CreateShortURL создает новую короткую ссылку и сохраняет ее в хранилище.
@@ -29,5 +27,5 @@ func (s *URLService) CreateShortURL(originalURL string) (string, error) {
 
 // GetOriginalURL получает оригинальный URL из хранилища по короткому идентификатору.
 func (s *URLService) GetOriginalURL(shortID string) (string, error) {
-	return s.storage.Get(shortID)
+	return s.storage.GetOriginalURL(shortID)
 }

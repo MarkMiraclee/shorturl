@@ -2,7 +2,11 @@ package main
 
 import (
 	"fmt"
+	"github.com/go-chi/chi/v5"
+	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"go.uber.org/zap"
 	"log"
+	"math/rand"
 	"net/http"
 	"shorturl/internal/config"
 	"shorturl/internal/handlers"
@@ -11,13 +15,11 @@ import (
 	"shorturl/internal/service"
 	"shorturl/internal/storage"
 	"time"
-
-	"github.com/go-chi/chi/v5"
-	chiMiddleware "github.com/go-chi/chi/v5/middleware"
-	"go.uber.org/zap"
 )
 
 func main() {
+	rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	zapLogger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatalf("failed to initialize zap logger: %v", err)
@@ -29,7 +31,16 @@ func main() {
 		}
 	}()
 	cfg := config.Load()
-	urlStorage := storage.NewInMemoryStorage()
+
+	var urlStorage storage.URLStorage
+	if cfg.FileStoragePath != "" {
+		urlStorage = storage.NewFileStorage(cfg.FileStoragePath)
+		log.Printf("Using file storage at: %s", cfg.FileStoragePath)
+	} else {
+		urlStorage = storage.NewInMemoryStorage()
+		log.Println("Using in-memory storage")
+	}
+
 	svc := service.NewURLService(urlStorage)
 	h := handlers.NewHandlers(svc)
 	r := chi.NewRouter()
@@ -39,10 +50,10 @@ func main() {
 	r.Use(chiMiddleware.RealIP)
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.Timeout(60 * time.Second))
-	r.Use(middleware.GzipResponse) // Применяем middleware для сжатия ответов
+	r.Use(middleware.GzipResponse)
 
 	r.Route("/", func(r chi.Router) {
-		r.Use(middleware.GzipRequest) // Применяем middleware для распаковки запросов
+		r.Use(middleware.GzipRequest)
 		r.Post("/", h.HandlePost(cfg))
 		r.Post("/api/shorten", h.HandleAPIShorten(cfg))
 	})
