@@ -22,7 +22,11 @@ func main() {
 		log.Fatalf("failed to initialize zap logger: %v", err)
 		return
 	}
-	defer zapLogger.Sync()
+	defer func() {
+		if err := zapLogger.Sync(); err != nil {
+			log.Printf("failed to sync zap logger: %v", err)
+		}
+	}()
 	cfg := config.Load()
 	urlStorage := storage.NewInMemoryStorage()
 	svc := service.NewURLService(urlStorage)
@@ -39,6 +43,7 @@ func main() {
 
 	r.Post("/", h.HandlePost(cfg))
 	r.Get("/{shortID}", h.HandleGet())
+	r.Post("/api/shorten", h.HandleAPIShorten(cfg)) // Добавлен новый маршрут
 
 	fmt.Printf("Server address from config: %s\n", cfg.ServerAddress)
 	fmt.Printf("Starting server on %s\n", cfg.BaseURL)

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"shorturl/internal/service"
 	"strings"
 )
+
+const shortURLLength = 8
 
 // Handlers представляет собой структуру с обработчиками HTTP-запросов.
 type Handlers struct {
@@ -21,7 +24,59 @@ func NewHandlers(svc service.URLShortener) *Handlers {
 	return &Handlers{Service: svc}
 }
 
-// HandlePost обрабатывает POST-запросы
+type ShortenRequest struct {
+	URL string `json:"url"`
+}
+
+type ShortenResponse struct {
+	Result string `json:"result"`
+}
+
+// HandleAPIShorten обрабатывает POST-запросы к /api/shorten для сокращения URL (JSON).
+func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req ShortenRequest
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
+		defer func() {
+			if errClose := r.Body.Close(); errClose != nil {
+				log.Printf("Error closing request body: %v", errClose)
+			}
+		}()
+
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		originalURL := req.URL
+		if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
+			http.Error(w, "Invalid URL format", http.StatusBadRequest)
+			return
+		}
+
+		shortID, err := h.Service.CreateShortURL(originalURL)
+		if err != nil {
+			http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
+			return
+		}
+
+		response := ShortenResponse{
+			Result: fmt.Sprintf("%s/%s", cfg.BaseURL, shortID),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Printf("Error writing JSON response: %v", err)
+		}
+	}
+}
+
+// HandlePost обрабатывает POST-запросы (текст).
 func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
@@ -30,8 +85,8 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 		defer func() {
-			if err := r.Body.Close(); err != nil {
-				log.Printf("Error closing request body: %v", err)
+			if errClose := r.Body.Close(); errClose != nil {
+				log.Printf("Error closing request body: %v", errClose)
 			}
 		}()
 
@@ -42,7 +97,7 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 		}
 		shortID, err := h.Service.CreateShortURL(originalURL)
 		if err != nil {
-			http.Error(w, "Failed to create short URL", http.StatusBadRequest)
+			http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain")
@@ -58,13 +113,13 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 func (h *Handlers) HandleGet() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		shortID := chi.URLParam(r, "shortID")
-		if len(shortID) != 8 {
-			http.Error(w, "Invalid short URL format", http.StatusBadRequest)
+		if len(shortID) != shortURLLength {
+			http.Error(w, fmt.Sprintf("Invalid short URL format (expected %d characters)", shortURLLength), http.StatusBadRequest)
 			return
 		}
 		defer func() {
-			if err := r.Body.Close(); err != nil {
-				log.Printf("Error closing request body: %v", err)
+			if errClose := r.Body.Close(); errClose != nil {
+				log.Printf("Error closing request body: %v", errClose)
 			}
 		}()
 		originalURL, err := h.Service.GetOriginalURL(shortID)

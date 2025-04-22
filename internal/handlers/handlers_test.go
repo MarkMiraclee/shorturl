@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"io"
@@ -46,6 +47,72 @@ func NewHandlers(svc service.URLShortener) *handlers.Handlers {
 // Для генерации предсказуемого короткого ID
 func generateMockShortID() string {
 	return "mockID01"
+}
+
+// TestHandleAPIShorten проверяет обработчик POST-запросов к /api/shorten.
+func TestHandleAPIShorten(t *testing.T) {
+	cfg := &config.Config{BaseURL: "http://localhost:8080"}
+	mockSvc := NewMockURLService()
+	h := NewHandlers(mockSvc)
+
+	router := chi.NewRouter()
+	router.Post("/api/shorten", h.HandleAPIShorten(cfg))
+
+	tests := []struct {
+		name           string
+		body           string
+		expectedCode   int
+		expectedResult string // Ожидаемый полный короткий URL
+	}{
+		{
+			name:           "Valid URL",
+			body:           `{"url": "http://example.com"}`,
+			expectedCode:   http.StatusCreated,
+			expectedResult: fmt.Sprintf("%s/%s", cfg.BaseURL, generateMockShortID()),
+		},
+		{
+			name:           "Invalid URL format",
+			body:           `{"url": "example.com"}`,
+			expectedCode:   http.StatusBadRequest,
+			expectedResult: "",
+		},
+		{
+			name:           "Invalid JSON",
+			body:           `{"url": "http://example.com"`,
+			expectedCode:   http.StatusBadRequest,
+			expectedResult: "",
+		},
+		{
+			name:           "Empty JSON",
+			body:           `{}`,
+			expectedCode:   http.StatusBadRequest,
+			expectedResult: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest(http.MethodPost, "/api/shorten", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			if rr.Code != tt.expectedCode {
+				t.Errorf("Test: %s, Expected status %d, got %d", tt.name, tt.expectedCode, rr.Code)
+			}
+
+			if tt.expectedCode == http.StatusCreated {
+				bodyBytes, _ := io.ReadAll(rr.Body)
+				var resp handlers.ShortenResponse
+				if err := json.Unmarshal(bodyBytes, &resp); err != nil {
+					t.Fatalf("Test: %s, Failed to unmarshal JSON response: %v", tt.name, err)
+				}
+				if resp.Result != tt.expectedResult {
+					t.Errorf("Test: %s, Expected result %s, got %s", tt.name, tt.expectedResult, resp.Result)
+				}
+			}
+		})
+	}
 }
 
 // TestHandlePost проверяет обработчик POST-запросов.
