@@ -89,8 +89,7 @@ func (s *FileStorage) CreateShortURL(originalURL string) (string, error) {
 	defer s.mu.Unlock()
 	shortID := generateShortID()
 	s.urls[shortID] = originalURL
-	// return shortID, s.SaveToFile(s.filePath)
-	return shortID, nil
+	return shortID, s.appendToFile(s.filePath, shortID, originalURL)
 }
 
 func (s *FileStorage) GetOriginalURL(shortID string) (string, error) {
@@ -131,7 +130,7 @@ func (s *FileStorage) LoadFromFile(filePath string) error {
 	return nil
 }
 
-func (s *FileStorage) SaveToFile(filePath string) error {
+func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL string) error {
 	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		return err
@@ -142,24 +141,25 @@ func (s *FileStorage) SaveToFile(filePath string) error {
 		}
 	}()
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for shortURL, originalURL := range s.urls {
-		uuid := generateUUID()
-		pair := URLPair{
-			UUID:        uuid,
-			ShortURL:    shortURL,
-			OriginalURL: originalURL,
-		}
-		jsonData, err := json.Marshal(pair)
-		if err != nil {
-			return err
-		}
-		_, err = file.WriteString(string(jsonData) + "\n")
-		if err != nil {
-			return err
-		}
+	uuid := generateUUID()
+	pair := URLPair{
+		UUID:        uuid,
+		ShortURL:    shortURL,
+		OriginalURL: originalURL,
 	}
+	jsonData, err := json.Marshal(pair)
+	if err != nil {
+		return err
+	}
+	_, err = file.WriteString(string(jsonData) + "\n")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *FileStorage) SaveToFile(_ string) error {
+	// Эта функция больше не используется, appendToFile вызывается напрямую
 	return nil
 }
 
