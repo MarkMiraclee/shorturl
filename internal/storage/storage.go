@@ -89,7 +89,8 @@ func (s *FileStorage) CreateShortURL(originalURL string) (string, error) {
 	defer s.mu.Unlock()
 	shortID := generateShortID()
 	s.urls[shortID] = originalURL
-	return shortID, s.SaveToFile(s.filePath)
+	// return shortID, s.SaveToFile(s.filePath)
+	return shortID, nil
 }
 
 func (s *FileStorage) GetOriginalURL(shortID string) (string, error) {
