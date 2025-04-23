@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	BaseURL       string `env:"BASE_URL" envDefault:"http://localhost:8080"`
-	ServerAddress string
+	BaseURL         string `env:"BASE_URL" envDefault:"http://localhost:8080"`
+	ServerAddress   string
+	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 }
 
 // Load загружает конфигурацию из переменных окружения и флагов командной строки.
@@ -19,6 +20,7 @@ func Load() *Config {
 
 	envServerAddress := os.Getenv("SERVER_ADDRESS")
 	envBaseURL := os.Getenv("BASE_URL")
+	envFileStoragePath := os.Getenv("FILE_STORAGE_PATH") // Загрузка FileStoragePath
 
 	var flagServerAddress string
 	var flagBaseURL string
@@ -30,6 +32,7 @@ func Load() *Config {
 
 	fmt.Printf("ENV SERVER_ADDRESS: '%s'\n", envServerAddress)
 	fmt.Printf("ENV BASE_URL: '%s'\n", envBaseURL)
+	fmt.Printf("ENV FILE_STORAGE_PATH: '%s'\n", envFileStoragePath) // Логирование FileStoragePath
 	fmt.Printf("FLAG SERVER_ADDRESS: '%s'\n", flagServerAddress)
 	fmt.Printf("FLAG BASE_URL: '%s'\n", flagBaseURL)
 
@@ -45,6 +48,8 @@ func Load() *Config {
 		cfg.BaseURL = flagBaseURL
 	}
 
+	cfg.FileStoragePath = envFileStoragePath
+
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = fmt.Sprintf("http://%s", cfg.ServerAddress)
 	} else {
@@ -53,6 +58,7 @@ func Load() *Config {
 
 	fmt.Printf("CONFIG SERVER_ADDRESS after load: '%s'\n", cfg.ServerAddress)
 	fmt.Printf("CONFIG BASE_URL after load: '%s'\n", cfg.BaseURL)
+	fmt.Printf("CONFIG FILE_STORAGE_PATH after load: '%s'\n", cfg.FileStoragePath) // Логирование FileStoragePath после загрузки
 
 	return cfg
 }
