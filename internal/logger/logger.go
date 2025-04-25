@@ -1,13 +1,12 @@
 package logger
 
 import (
+	"go.uber.org/zap"
 	"net/http"
 	"os"
+	"shorturl/internal/config"
 	"strings"
 	"time"
-
-	"go.uber.org/zap"
-	"shorturl/internal/config"
 )
 
 var Logger *zap.Logger

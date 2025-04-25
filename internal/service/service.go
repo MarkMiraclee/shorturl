@@ -1,31 +1,37 @@
 package service
 
-import (
-	"shorturl/internal/storage"
-)
-
-// URLShortener определяет интерфейс для сервиса сокращения URL.
-type URLShortener interface {
+// ShortURLCreatorGetter определяет интерфейс для создания и получения коротких URL.
+type ShortURLCreatorGetter interface {
 	CreateShortURL(originalURL string) (string, error)
 	GetOriginalURL(shortID string) (string, error)
 }
 
-// URLService реализует интерфейс URLShortener и содержит бизнес-логику.
-type URLService struct {
-	storage storage.URLStorage
+// PersistentStorage определяет интерфейс для хранилищ с возможностью сохранения/загрузки в файл.
+type PersistentStorage interface {
+	LoadFromFile(filePath string) error
+	SaveToFile(filePath string) error
 }
 
-// NewURLService создает новый экземпляр URLService с заданным хранилищем.
-func NewURLService(storage storage.URLStorage) *URLService {
+// URLStorage - композиция обоих интерфейсов (может использоваться там, где требуется обе функциональности).
+type URLStorage interface {
+	ShortURLCreatorGetter
+	PersistentStorage
+}
+
+// URLService представляет собой реализацию сервиса сокращения URL.
+type URLService struct {
+	storage ShortURLCreatorGetter // Сервис зависит только от необходимого интерфейса
+}
+
+// NewURLService создает и возвращает новый экземпляр URLService.
+func NewURLService(storage ShortURLCreatorGetter) *URLService {
 	return &URLService{storage: storage}
 }
 
-// CreateShortURL создает новую короткую ссылку и сохраняет ее в хранилище.
 func (s *URLService) CreateShortURL(originalURL string) (string, error) {
 	return s.storage.CreateShortURL(originalURL)
 }
 
-// GetOriginalURL получает оригинальный URL из хранилища по короткому идентификатору.
 func (s *URLService) GetOriginalURL(shortID string) (string, error) {
 	return s.storage.GetOriginalURL(shortID)
 }

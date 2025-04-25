@@ -3,26 +3,19 @@ package storage
 import (
 	"bufio"
 	"encoding/json"
-	"log"
+	"go.uber.org/zap"
 	"math/rand"
 	"os"
+	"shorturl/internal/logger"
 	"sync"
 	"time"
 )
 
 // URLPair представляет собой пару короткого и оригинального URL.
 type URLPair struct {
-	UUID        string `json:"uuid"`
+	ID          string `json:"id"`
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
-}
-
-// URLStorage определяет интерфейс для хранилища URL.
-type URLStorage interface {
-	CreateShortURL(originalURL string) (string, error)
-	GetOriginalURL(shortID string) (string, error)
-	LoadFromFile(filePath string) error
-	SaveToFile(filePath string) error
 }
 
 // InMemoryStorage представляет собой реализацию хранилища в памяти.
@@ -56,14 +49,6 @@ func (s *InMemoryStorage) GetOriginalURL(shortID string) (string, error) {
 	return url, nil
 }
 
-func (s *InMemoryStorage) LoadFromFile(_ string) error {
-	return nil
-}
-
-func (s *InMemoryStorage) SaveToFile(_ string) error {
-	return nil
-}
-
 // FileStorage представляет собой реализацию хранилища в файле.
 type FileStorage struct {
 	mu       sync.RWMutex
@@ -79,7 +64,10 @@ func NewFileStorage(filePath string) *FileStorage {
 	}
 	err := s.LoadFromFile(filePath)
 	if err != nil {
-		log.Printf("Error loading data %s: %v", filePath, err)
+		logger.Logger.Error("Error loading data from file", // Используем zap.Error
+			zap.String("path", filePath),
+			zap.Error(err),
+		)
 	}
 	return s
 }
@@ -88,8 +76,12 @@ func (s *FileStorage) CreateShortURL(originalURL string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	shortID := generateShortID()
+	err := s.appendToFile(s.filePath, shortID, originalURL)
+	if err != nil {
+		return "", err
+	}
 	s.urls[shortID] = originalURL
-	return shortID, s.appendToFile(s.filePath, shortID, originalURL)
+	return shortID, nil
 }
 
 func (s *FileStorage) GetOriginalURL(shortID string) (string, error) {
@@ -109,7 +101,10 @@ func (s *FileStorage) LoadFromFile(filePath string) error {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			log.Printf("Error closing file %s: %v", filePath, err)
+			logger.Logger.Error("Error closing file", // Используем zap.Error
+				zap.String("path", filePath),
+				zap.Error(err),
+			)
 		}
 	}()
 
@@ -137,13 +132,16 @@ func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			log.Printf("Error closing file %s: %v", filePath, err)
+			logger.Logger.Error("Error closing file", // Используем zap.Error
+				zap.String("path", filePath),
+				zap.Error(err),
+			)
 		}
 	}()
 
-	uuid := generateUUID()
+	id := generateID()
 	pair := URLPair{
-		UUID:        uuid,
+		ID:          id,
 		ShortURL:    shortURL,
 		OriginalURL: originalURL,
 	}
@@ -158,18 +156,13 @@ func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL
 	return nil
 }
 
-func (s *FileStorage) SaveToFile(_ string) error {
-	// Эта функция больше не используется, appendToFile вызывается напрямую
-	return nil
-}
-
 func generateShortID() string {
 	// Простая заглушка для генерации короткого ID
 	return generateRandomString(8)
 }
 
-func generateUUID() string {
-	// Простая заглушка для генерации UUID
+func generateID() string {
+	// Простая заглушка для генерации ID
 	return generateRandomString(16)
 }
 

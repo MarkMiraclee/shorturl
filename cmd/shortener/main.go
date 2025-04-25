@@ -3,7 +3,6 @@ package main
 import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
-	"go.uber.org/zap"
 	"math/rand"
 	"net/http"
 	"shorturl/internal/config"
@@ -13,6 +12,8 @@ import (
 	"shorturl/internal/service"
 	"shorturl/internal/storage"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -28,12 +29,15 @@ func main() {
 		}
 	}()
 
-	var urlStorage storage.URLStorage
+	logger.Logger.Info("Loaded configuration", zap.String("config", cfg.String())) // Выводим конфигурацию одной строкой
+
+	var urlStorage service.ShortURLCreatorGetter
 	if cfg.FileStoragePath != "" {
-		urlStorage = storage.NewFileStorage(cfg.FileStoragePath)
+		fileStorage := storage.NewFileStorage(cfg.FileStoragePath)
+		urlStorage = fileStorage // FileStorage теперь неявно реализует ShortURLCreatorGetter
 		logger.Logger.Info("Using file storage", zap.String("path", cfg.FileStoragePath))
 	} else {
-		urlStorage = storage.NewInMemoryStorage()
+		urlStorage = storage.NewInMemoryStorage() // InMemoryStorage реализует ShortURLCreatorGetter
 		logger.Logger.Info("Using in-memory storage")
 	}
 
@@ -55,8 +59,7 @@ func main() {
 	})
 	r.Get("/{shortID}", h.HandleGet())
 
-	logger.Logger.Info("Server address from config", zap.String("address", cfg.ServerAddress))
-	logger.Logger.Info("Starting server", zap.String("address", cfg.BaseURL))
+	logger.Logger.Info("Starting server", zap.String("address", cfg.ServerAddress), zap.String("baseURL", cfg.BaseURL))
 	if err := http.ListenAndServe(cfg.ServerAddress, r); err != nil {
 		logger.Logger.Fatal("Failed to start server", zap.Error(err))
 	}

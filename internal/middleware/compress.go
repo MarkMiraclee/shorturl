@@ -2,9 +2,10 @@ package middleware
 
 import (
 	"compress/gzip"
+	"go.uber.org/zap"
 	"io"
-	"log"
 	"net/http"
+	"shorturl/internal/logger"
 	"strings"
 )
 
@@ -48,7 +49,7 @@ func GzipResponse(next http.Handler) http.Handler {
 		}
 		defer func() {
 			if err := gz.Close(); err != nil {
-				log.Printf("Error closing gzip writer: %v", err)
+				logger.Logger.Error("Error closing gzip writer", zap.Error(err)) // Используем zap.Error
 			}
 		}()
 
@@ -71,7 +72,7 @@ func GzipRequest(next http.Handler) http.Handler {
 			r.Body = gz
 			defer func() {
 				if err := gz.Close(); err != nil {
-					log.Printf("Error closing gzip reader: %v", err)
+					logger.Logger.Error("Error closing gzip reader", zap.Error(err)) // Используем zap.Error
 				}
 			}()
 		}

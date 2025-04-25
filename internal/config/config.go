@@ -12,7 +12,24 @@ type Config struct {
 	ServerAddress   string
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	LogLevel        string `env:"LOG_LEVEL" envDefault:"info"`
-	LogFormat       string `env:"LOG_FORMAT" envDefault:"json"` // Добавлено поле LogFormat
+	LogFormat       string `env:"LOG_FORMAT" envDefault:"json"`
+}
+
+// String реализует интерфейс fmt.Stringer для структуры Config.
+func (c *Config) String() string {
+	return fmt.Sprintf(
+		"Config: "+
+			"ServerAddress='%s', "+
+			"BaseURL='%s', "+
+			"FileStoragePath='%s', "+
+			"LogLevel='%s', "+
+			"LogFormat='%s'",
+		c.ServerAddress,
+		c.BaseURL,
+		c.FileStoragePath,
+		c.LogLevel,
+		c.LogFormat,
+	)
 }
 
 // Load загружает конфигурацию из переменных окружения и флагов командной строки.
@@ -24,29 +41,19 @@ func Load() *Config {
 	envBaseURL := os.Getenv("BASE_URL")
 	envFileStoragePath := os.Getenv("FILE_STORAGE_PATH")
 	envLogLevel := os.Getenv("LOG_LEVEL")
-	envLogFormat := os.Getenv("LOG_FORMAT") // Загрузка LogFormat
+	envLogFormat := os.Getenv("LOG_FORMAT")
 
 	var flagServerAddress string
 	var flagBaseURL string
 	var flagLogLevel string
-	var flagLogFormat string // Флаг для LogFormat
+	var flagLogFormat string
 
 	flag.StringVar(&flagServerAddress, "a", "localhost:8080", "HTTP server address")
 	flag.StringVar(&flagBaseURL, "b", "", "Base URL for shortened links")
 	flag.StringVar(&flagLogLevel, "l", "info", "Log level (debug, info, warn, error, fatal)")
-	flag.StringVar(&flagLogFormat, "f", "json", "Log format (text, json)") // Добавлен флаг
+	flag.StringVar(&flagLogFormat, "f", "json", "Log format (text, json)")
 
 	flag.Parse()
-
-	fmt.Printf("ENV SERVER_ADDRESS: '%s'\n", envServerAddress)
-	fmt.Printf("ENV BASE_URL: '%s'\n", envBaseURL)
-	fmt.Printf("ENV FILE_STORAGE_PATH: '%s'\n", envFileStoragePath)
-	fmt.Printf("ENV LOG_LEVEL: '%s'\n", envLogLevel)
-	fmt.Printf("ENV LOG_FORMAT: '%s'\n", envLogFormat) // Логирование LogFormat
-	fmt.Printf("FLAG SERVER_ADDRESS: '%s'\n", flagServerAddress)
-	fmt.Printf("FLAG BASE_URL: '%s'\n", flagBaseURL)
-	fmt.Printf("FLAG LOG_LEVEL: '%s'\n", flagLogLevel)
-	fmt.Printf("FLAG LOG_FORMAT: '%s'\n", flagLogFormat) // Логирование флага LogFormat
 
 	if envServerAddress != "" {
 		cfg.ServerAddress = envServerAddress
@@ -79,12 +86,6 @@ func Load() *Config {
 	} else {
 		cfg.BaseURL = strings.TrimSuffix(cfg.BaseURL, "/")
 	}
-
-	fmt.Printf("CONFIG SERVER_ADDRESS after load: '%s'\n", cfg.ServerAddress)
-	fmt.Printf("CONFIG BASE_URL after load: '%s'\n", cfg.BaseURL)
-	fmt.Printf("CONFIG FILE_STORAGE_PATH after load: '%s'\n", cfg.FileStoragePath)
-	fmt.Printf("CONFIG LOG_LEVEL after load: '%s'\n", cfg.LogLevel)
-	fmt.Printf("CONFIG LOG_FORMAT after load: '%s'\n", cfg.LogFormat) // Логирование итогового LogFormat
 
 	return cfg
 }

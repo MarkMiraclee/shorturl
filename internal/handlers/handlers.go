@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 	"io"
-	"log"
 	"net/http"
 	"shorturl/internal/config"
+	"shorturl/internal/logger"
 	"shorturl/internal/service"
 	"strings"
 )
@@ -43,7 +44,7 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 		}
 		defer func() {
 			if errClose := r.Body.Close(); errClose != nil {
-				log.Printf("Error closing request body: %v", errClose)
+				logger.Logger.Error("Error closing request body", zap.Error(errClose)) // Используем zap.Error
 			}
 		}()
 
@@ -71,7 +72,7 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		if err := json.NewEncoder(w).Encode(response); err != nil {
-			log.Printf("Error writing JSON response: %v", err)
+			logger.Logger.Error("Error writing JSON response", zap.Error(err)) // Используем zap.Error
 		}
 	}
 }
@@ -86,7 +87,7 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 		}
 		defer func() {
 			if errClose := r.Body.Close(); errClose != nil {
-				log.Printf("Error closing request body: %v", errClose)
+				logger.Logger.Error("Error closing request body", zap.Error(errClose)) // Используем zap.Error
 			}
 		}()
 
@@ -104,7 +105,7 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 		w.WriteHeader(http.StatusCreated)
 		_, err = fmt.Fprintf(w, "%s/%s", cfg.BaseURL, shortID)
 		if err != nil {
-			log.Printf("Error writing response: %v", err)
+			logger.Logger.Error("Error writing response", zap.Error(err)) // Используем zap.Error
 		}
 	}
 }
@@ -119,7 +120,7 @@ func (h *Handlers) HandleGet() http.HandlerFunc {
 		}
 		defer func() {
 			if errClose := r.Body.Close(); errClose != nil {
-				log.Printf("Error closing request body: %v", errClose)
+				logger.Logger.Error("Error closing request body", zap.Error(errClose)) // Используем zap.Error
 			}
 		}()
 		originalURL, err := h.Service.GetOriginalURL(shortID)
