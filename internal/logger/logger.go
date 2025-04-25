@@ -2,10 +2,55 @@ package logger
 
 import (
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
+	"shorturl/internal/config"
 )
+
+var Logger *zap.Logger
+
+func InitializeLogger(cfg *config.Config) {
+	zapConfig := zap.NewProductionConfig()
+
+	logLevelStr := strings.ToLower(cfg.LogLevel)
+	var level zap.AtomicLevel
+
+	switch logLevelStr {
+	case "debug":
+		level = zap.NewAtomicLevelAt(zap.DebugLevel)
+	case "info":
+		level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	case "warn":
+		level = zap.NewAtomicLevelAt(zap.WarnLevel)
+	case "error":
+		level = zap.NewAtomicLevelAt(zap.ErrorLevel)
+	case "fatal":
+		level = zap.NewAtomicLevelAt(zap.FatalLevel)
+	default:
+		level = zap.NewAtomicLevelAt(zap.InfoLevel) // По умолчанию info
+	}
+
+	zapConfig.Level = level
+
+	// Настройка формата логгера
+	if strings.ToLower(cfg.LogFormat) == "text" {
+		zapConfig.Encoding = "console"
+	} else { // По умолчанию json
+		zapConfig.Encoding = "json"
+	}
+
+	logger, err := zapConfig.Build()
+	if err != nil {
+		tempLogger, _ := zap.NewProduction()
+		tempLogger.Fatal("failed to initialize zap logger", zap.Error(err))
+		os.Exit(1)
+		return
+	}
+	Logger = logger
+}
 
 // Middleware логирует информацию о запросах и ответах.
 func Middleware(logger *zap.Logger) func(http.Handler) http.Handler {

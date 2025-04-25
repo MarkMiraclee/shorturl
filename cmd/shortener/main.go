@@ -1,11 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
-	"log"
 	"math/rand"
 	"net/http"
 	"shorturl/internal/config"
@@ -20,32 +18,30 @@ import (
 func main() {
 	rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	zapLogger, err := zap.NewProduction()
-	if err != nil {
-		log.Fatalf("failed to initialize zap logger: %v", err)
-		return
-	}
+	cfg := config.Load()
+
+	logger.InitializeLogger(cfg)
+
 	defer func() {
-		if err := zapLogger.Sync(); err != nil {
-			log.Printf("failed to sync zap logger: %v", err)
+		if logger.Logger != nil {
+			logger.Logger.Sync()
 		}
 	}()
-	cfg := config.Load()
 
 	var urlStorage storage.URLStorage
 	if cfg.FileStoragePath != "" {
 		urlStorage = storage.NewFileStorage(cfg.FileStoragePath)
-		log.Printf("Using file storage at: %s", cfg.FileStoragePath)
+		logger.Logger.Info("Using file storage", zap.String("path", cfg.FileStoragePath))
 	} else {
 		urlStorage = storage.NewInMemoryStorage()
-		log.Println("Using in-memory storage")
+		logger.Logger.Info("Using in-memory storage")
 	}
 
 	svc := service.NewURLService(urlStorage)
 	h := handlers.NewHandlers(svc)
 	r := chi.NewRouter()
 
-	r.Use(logger.Middleware(zapLogger))
+	r.Use(logger.Middleware(logger.Logger))
 	r.Use(chiMiddleware.RequestID)
 	r.Use(chiMiddleware.RealIP)
 	r.Use(chiMiddleware.Recoverer)
@@ -59,7 +55,9 @@ func main() {
 	})
 	r.Get("/{shortID}", h.HandleGet())
 
-	fmt.Printf("Server address from config: %s\n", cfg.ServerAddress)
-	fmt.Printf("Starting server on %s\n", cfg.BaseURL)
-	log.Fatal(http.ListenAndServe(cfg.ServerAddress, r))
+	logger.Logger.Info("Server address from config", zap.String("address", cfg.ServerAddress))
+	logger.Logger.Info("Starting server", zap.String("address", cfg.BaseURL))
+	if err := http.ListenAndServe(cfg.ServerAddress, r); err != nil {
+		logger.Logger.Fatal("Failed to start server", zap.Error(err))
+	}
 }
