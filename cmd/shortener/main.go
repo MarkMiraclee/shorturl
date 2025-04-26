@@ -6,6 +6,7 @@ import (
 	"go.uber.org/zap"
 	"math/rand"
 	"net/http"
+	"os"
 	"shorturl/internal/config"
 	"shorturl/internal/handlers"
 	"shorturl/internal/logger"
@@ -31,10 +32,16 @@ func main() {
 	// Инициализируем InMemoryStorage как основное хранилище
 	memStorage := storage.NewInMemoryStorage()
 	var persistentStorage *storage.FileStorage
+	fileStoragePath := cfg.FileStoragePath // Получаем значение из конфигурации как значение по умолчанию
 
-	if cfg.FileStoragePath != "" {
-		persistentStorage = storage.NewFileStorage(cfg.FileStoragePath)
-		// Загрузка данных из файла в InMemoryStorage при старте
+	if envPath := os.Getenv("FILE_STORAGE_PATH"); envPath != "" {
+		fileStoragePath = envPath // Перезаписываем, если переменная окружения установлена
+	}
+
+	if fileStoragePath != "" {
+		persistentStorage = storage.NewFileStorage(fileStoragePath)
+		logger.Logger.Info("Using FileStorage path:", zap.String("path", fileStoragePath))
+
 		successful, failed, err := persistentStorage.LoadAllToMemory(memStorage)
 		if err != nil {
 			logger.Logger.Error("Error loading data from file to memory", zap.Error(err), zap.Int("successful", successful), zap.Int("failed", failed))
@@ -44,7 +51,6 @@ func main() {
 			logger.Logger.Info("Data loaded from file to in-memory storage")
 		}
 
-		// Периодическое сохранение данных из InMemoryStorage в файл
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
 			defer ticker.Stop()
@@ -57,7 +63,6 @@ func main() {
 			}
 		}()
 
-		// Сохранение данных при завершении приложения
 		defer func() {
 			if err := persistentStorage.SaveAllFromMemory(memStorage); err != nil {
 				logger.Logger.Error("Error saving data from memory to file on exit", zap.Error(err))
