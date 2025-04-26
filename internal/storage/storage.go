@@ -194,9 +194,7 @@ func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL
 		}
 	}()
 
-	id := generateID()
 	pair := URLPair{
-		ID:          id,
 		ShortURL:    shortURL,
 		OriginalURL: originalURL,
 	}
@@ -205,15 +203,15 @@ func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL
 		return err
 	}
 	_, err = file.WriteString(string(jsonData) + "\n")
+	if err != nil {
+		return err
+	}
+	err = file.Sync() // Добавьте эту строку здесь
 	return err
 }
 
 func generateShortID() string {
 	return generateRandomString(8)
-}
-
-func generateID() string {
-	return generateRandomString(16)
 }
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
