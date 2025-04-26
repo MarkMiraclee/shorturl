@@ -206,7 +206,8 @@ func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL
 	if err != nil {
 		return err
 	}
-	err = file.Sync() // Добавьте эту строку здесь
+	err = file.Sync()
+	time.Sleep(time.Second * 5)
 	return err
 }
 
