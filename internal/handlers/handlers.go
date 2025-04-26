@@ -18,7 +18,7 @@ const shortURLLength = 8
 
 // Handlers представляет собой структуру с обработчиками HTTP-запросов.
 type Handlers struct {
-	Service service.URLShortener // Используем интерфейс service.URLShortener
+	Service service.URLShortener
 }
 
 // NewHandlers создает и возвращает новый экземпляр Handlers с заданным сервисом.

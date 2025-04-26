@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"go.uber.org/zap"
 	"math/rand"
 	"net/http"
 	"shorturl/internal/config"
@@ -12,8 +13,6 @@ import (
 	"shorturl/internal/service"
 	"shorturl/internal/storage"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 func main() {
@@ -22,26 +21,55 @@ func main() {
 	cfg := config.Load()
 
 	logger.InitializeLogger(cfg)
-
 	defer func() {
-		if logger.Logger != nil {
-			logger.Logger.Sync()
+		if err := logger.Logger.Sync(); err != nil {
+			logger.Logger.Error("Failed to sync logger on exit", zap.Error(err))
 		}
 	}()
+	logger.Logger.Info("Loaded configuration", zap.String("config", cfg.String()))
 
-	logger.Logger.Info("Loaded configuration", zap.String("config", cfg.String())) // Выводим конфигурацию одной строкой
+	// Инициализируем InMemoryStorage как основное хранилище
+	memStorage := storage.NewInMemoryStorage()
+	var persistentStorage *storage.FileStorage
 
-	var urlStorage service.ShortURLCreatorGetter
 	if cfg.FileStoragePath != "" {
-		fileStorage := storage.NewFileStorage(cfg.FileStoragePath)
-		urlStorage = fileStorage // FileStorage теперь неявно реализует ShortURLCreatorGetter
-		logger.Logger.Info("Using file storage", zap.String("path", cfg.FileStoragePath))
+		persistentStorage = storage.NewFileStorage(cfg.FileStoragePath)
+		// Загрузка данных из файла в InMemoryStorage при старте
+		successful, failed, err := persistentStorage.LoadAllToMemory(memStorage)
+		if err != nil {
+			logger.Logger.Error("Error loading data from file to memory", zap.Error(err), zap.Int("successful", successful), zap.Int("failed", failed))
+		} else if failed > 0 {
+			logger.Logger.Warn("Loaded data from file with some errors", zap.Int("successful", successful), zap.Int("failed", failed))
+		} else {
+			logger.Logger.Info("Data loaded from file to in-memory storage")
+		}
+
+		// Периодическое сохранение данных из InMemoryStorage в файл
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				if err := persistentStorage.SaveAllFromMemory(memStorage); err != nil {
+					logger.Logger.Error("Error saving data from memory to file", zap.Error(err))
+				} else {
+					logger.Logger.Info("Data saved from memory to file")
+				}
+			}
+		}()
+
+		// Сохранение данных при завершении приложения
+		defer func() {
+			if err := persistentStorage.SaveAllFromMemory(memStorage); err != nil {
+				logger.Logger.Error("Error saving data from memory to file on exit", zap.Error(err))
+			} else {
+				logger.Logger.Info("Data saved from memory to file on exit")
+			}
+		}()
 	} else {
-		urlStorage = storage.NewInMemoryStorage() // InMemoryStorage реализует ShortURLCreatorGetter
-		logger.Logger.Info("Using in-memory storage")
+		logger.Logger.Info("Using only in-memory storage")
 	}
 
-	svc := service.NewURLService(urlStorage)
+	svc := service.NewURLService(memStorage)
 	h := handlers.NewHandlers(svc)
 	r := chi.NewRouter()
 

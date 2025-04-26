@@ -3,6 +3,7 @@ package storage
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"go.uber.org/zap"
 	"math/rand"
 	"os"
@@ -44,15 +45,35 @@ func (s *InMemoryStorage) GetOriginalURL(shortID string) (string, error) {
 	defer s.mu.RUnlock()
 	url, ok := s.urls[shortID]
 	if !ok {
-		return "", nil // Или вернуть ошибку, в зависимости от логики
+		return "", nil
 	}
 	return url, nil
+}
+
+// Merge принимает данные из другой мапы и объединяет их с текущей
+func (s *InMemoryStorage) Merge(data map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, v := range data {
+		s.urls[k] = v
+	}
+}
+
+// GetData возвращает копию текущих данных
+func (s *InMemoryStorage) GetData() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	dataCopy := make(map[string]string)
+	for k, v := range s.urls {
+		dataCopy[k] = v
+	}
+	return dataCopy
 }
 
 // FileStorage представляет собой реализацию хранилища в файле.
 type FileStorage struct {
 	mu       sync.RWMutex
-	urls     map[string]string
+	urls     map[string]string // Временно храним для SaveAllFromMemory
 	filePath string
 }
 
@@ -61,13 +82,6 @@ func NewFileStorage(filePath string) *FileStorage {
 	s := &FileStorage{
 		urls:     make(map[string]string),
 		filePath: filePath,
-	}
-	err := s.LoadFromFile(filePath)
-	if err != nil {
-		logger.Logger.Error("Error loading data from file", // Используем zap.Error
-			zap.String("path", filePath),
-			zap.Error(err),
-		)
 	}
 	return s
 }
@@ -94,34 +108,78 @@ func (s *FileStorage) GetOriginalURL(shortID string) (string, error) {
 	return url, nil
 }
 
-func (s *FileStorage) LoadFromFile(filePath string) error {
-	file, err := os.OpenFile(filePath, os.O_RDONLY|os.O_CREATE, 0644)
+// LoadAllToMemory загружает все данные из файла в InMemoryStorage и возвращает информацию об ошибках
+func (s *FileStorage) LoadAllToMemory(memStorage *InMemoryStorage) (int, int, error) {
+	file, err := os.OpenFile(s.filePath, os.O_RDONLY|os.O_CREATE, 0644)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Logger.Error("Error closing file in LoadAllToMemory", zap.Error(err), zap.String("path", s.filePath))
+		}
+	}()
+
+	data := make(map[string]string)
+	scanner := bufio.NewScanner(file)
+	successfulLoads := 0
+	failedLoads := 0
+	var firstError error
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		var pair URLPair
+		if err := json.Unmarshal([]byte(line), &pair); err != nil {
+			logger.Logger.Warn("Error unmarshalling line in LoadAllToMemory", zap.Error(err), zap.String("line", line))
+			failedLoads++
+			if firstError == nil {
+				firstError = err // Запоминаем первую ошибку
+			}
+			continue
+		}
+		data[pair.ShortURL] = pair.OriginalURL
+		successfulLoads++
+	}
+	if err := scanner.Err(); err != nil {
+		return successfulLoads, failedLoads, err
+	}
+
+	memStorage.Merge(data)
+
+	var loadError error
+	if failedLoads > 0 {
+		loadError = fmt.Errorf("loaded %d records with %d errors", successfulLoads, failedLoads)
+	}
+
+	return successfulLoads, failedLoads, loadError
+}
+
+// SaveAllFromMemory сохраняет все данные из InMemoryStorage в файл
+func (s *FileStorage) SaveAllFromMemory(memStorage *InMemoryStorage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data := memStorage.GetData()
+	file, err := os.OpenFile(s.filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644) // Перезаписываем файл
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			logger.Logger.Error("Error closing file", // Используем zap.Error
-				zap.String("path", filePath),
-				zap.Error(err),
-			)
+			logger.Logger.Error("Error closing file in SaveAllFromMemory", zap.Error(err), zap.String("path", s.filePath))
 		}
 	}()
 
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		var pair URLPair
-		if err := json.Unmarshal([]byte(line), &pair); err != nil {
+	encoder := json.NewEncoder(file)
+	for shortURL, originalURL := range data {
+		pair := URLPair{
+			ShortURL:    shortURL,
+			OriginalURL: originalURL,
+		}
+		if err := encoder.Encode(pair); err != nil {
 			return err
 		}
-		s.urls[pair.ShortURL] = pair.OriginalURL
 	}
-
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -132,10 +190,7 @@ func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-			logger.Logger.Error("Error closing file", // Используем zap.Error
-				zap.String("path", filePath),
-				zap.Error(err),
-			)
+			logger.Logger.Error("Error closing file in appendToFile", zap.Error(err), zap.String("path", s.filePath))
 		}
 	}()
 
@@ -150,19 +205,14 @@ func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL
 		return err
 	}
 	_, err = file.WriteString(string(jsonData) + "\n")
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 func generateShortID() string {
-	// Простая заглушка для генерации короткого ID
 	return generateRandomString(8)
 }
 
 func generateID() string {
-	// Простая заглушка для генерации ID
 	return generateRandomString(16)
 }
 
