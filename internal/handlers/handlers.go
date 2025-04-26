@@ -4,20 +4,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
 	"io"
 	"net/http"
 	"shorturl/internal/config"
 	"shorturl/internal/logger"
 	"shorturl/internal/service"
 	"strings"
+
+	"go.uber.org/zap"
 )
 
 const shortURLLength = 8
 
 // Handlers представляет собой структуру с обработчиками HTTP-запросов.
 type Handlers struct {
-	Service service.URLShortener // Интерфейс сервиса для работы с URL.
+	Service service.URLShortener // Используем интерфейс service.URLShortener
 }
 
 // NewHandlers создает и возвращает новый экземпляр Handlers с заданным сервисом.
@@ -44,7 +45,7 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 		}
 		defer func() {
 			if errClose := r.Body.Close(); errClose != nil {
-				logger.Logger.Error("Error closing request body", zap.Error(errClose)) // Используем zap.Error
+				logger.Logger.Error("Error closing request body", zap.Error(errClose))
 			}
 		}()
 
@@ -59,7 +60,7 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		shortID, err := h.Service.CreateShortURL(originalURL)
+		shortID, err := h.Service.CreateShortURL(originalURL) // Используем метод интерфейса
 		if err != nil {
 			http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
 			return
@@ -72,7 +73,7 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		if err := json.NewEncoder(w).Encode(response); err != nil {
-			logger.Logger.Error("Error writing JSON response", zap.Error(err)) // Используем zap.Error
+			logger.Logger.Error("Error writing JSON response", zap.Error(err))
 		}
 	}
 }
@@ -87,7 +88,7 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 		}
 		defer func() {
 			if errClose := r.Body.Close(); errClose != nil {
-				logger.Logger.Error("Error closing request body", zap.Error(errClose)) // Используем zap.Error
+				logger.Logger.Error("Error closing request body", zap.Error(errClose))
 			}
 		}()
 
@@ -96,7 +97,7 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 			http.Error(w, "Invalid URL format", http.StatusBadRequest)
 			return
 		}
-		shortID, err := h.Service.CreateShortURL(originalURL)
+		shortID, err := h.Service.CreateShortURL(originalURL) // Используем метод интерфейса
 		if err != nil {
 			http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
 			return
@@ -105,7 +106,7 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 		w.WriteHeader(http.StatusCreated)
 		_, err = fmt.Fprintf(w, "%s/%s", cfg.BaseURL, shortID)
 		if err != nil {
-			logger.Logger.Error("Error writing response", zap.Error(err)) // Используем zap.Error
+			logger.Logger.Error("Error writing response", zap.Error(err))
 		}
 	}
 }
@@ -120,10 +121,10 @@ func (h *Handlers) HandleGet() http.HandlerFunc {
 		}
 		defer func() {
 			if errClose := r.Body.Close(); errClose != nil {
-				logger.Logger.Error("Error closing request body", zap.Error(errClose)) // Используем zap.Error
+				logger.Logger.Error("Error closing request body", zap.Error(errClose))
 			}
 		}()
-		originalURL, err := h.Service.GetOriginalURL(shortID)
+		originalURL, err := h.Service.GetOriginalURL(shortID) // Используем метод интерфейса
 		if err != nil {
 			http.Error(w, "Invalid or non-existent short URL", http.StatusBadRequest)
 			return

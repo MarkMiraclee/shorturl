@@ -18,6 +18,12 @@ type URLStorage interface {
 	PersistentStorage
 }
 
+// URLShortener определяет интерфейс сервиса для сокращения URL.
+type URLShortener interface {
+	CreateShortURL(originalURL string) (string, error)
+	GetOriginalURL(shortID string) (string, error)
+}
+
 // URLService представляет собой реализацию сервиса сокращения URL.
 type URLService struct {
 	storage ShortURLCreatorGetter // Сервис зависит только от необходимого интерфейса
