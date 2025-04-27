@@ -207,7 +207,7 @@ func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL
 		return err
 	}
 	err = file.Sync()
-	time.Sleep(time.Second * 5)
+	//time.Sleep(time.Second * 5)
 	return err
 }
 
