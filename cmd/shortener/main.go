@@ -20,8 +20,15 @@ func main() {
 	rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	cfg := config.Load()
-
 	logger.InitializeLogger(cfg)
+	logger.Logger.Info("Loaded configuration", zap.String("config", cfg.String()))
+	logger.Logger.Info("Config values:",
+		zap.String("ServerAddress", cfg.ServerAddress),
+		zap.String("BaseURL", cfg.BaseURL),
+		zap.String("FileStoragePath", cfg.FileStoragePath),
+		zap.String("LogLevel", cfg.LogLevel),
+		zap.String("LogFormat", cfg.LogFormat),
+	)
 	// Инициализируем InMemoryStorage как основное хранилище
 	memStorage := storage.NewInMemoryStorage()
 	var persistentStorage *storage.FileStorage
