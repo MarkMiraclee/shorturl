@@ -82,4 +82,5 @@ func main() {
 	if err := http.ListenAndServe(cfg.ServerAddress, r); err != nil {
 		logger.Logger.Fatal("Failed to start server", zap.Error(err))
 	}
+	time.Sleep(time.Millisecond * 100)
 }
