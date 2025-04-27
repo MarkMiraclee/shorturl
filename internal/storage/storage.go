@@ -184,13 +184,18 @@ func (s *FileStorage) SaveAllFromMemory(memStorage *InMemoryStorage) error {
 }
 
 func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL string) error {
+	logger.Logger.Info("Attempting to write to file", zap.String("path", filePath), zap.String("shortURL", shortURL), zap.String("originalURL", originalURL))
 	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
+		logger.Logger.Error("Error opening file for writing", zap.Error(err), zap.String("path", filePath))
 		return err
 	}
 	defer func() {
-		if err := file.Close(); err != nil {
-			logger.Logger.Error("Error closing file in appendToFile", zap.Error(err), zap.String("path", s.filePath))
+		errClose := file.Close()
+		if errClose != nil {
+			logger.Logger.Error("Error closing file in appendToFile", zap.Error(errClose), zap.String("path", filePath))
+		} else {
+			logger.Logger.Info("Successfully closed file after writing", zap.String("path", filePath))
 		}
 	}()
 
@@ -200,15 +205,21 @@ func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL
 	}
 	jsonData, err := json.Marshal(pair)
 	if err != nil {
+		logger.Logger.Error("Error marshalling JSON", zap.Error(err), zap.String("shortURL", shortURL), zap.String("originalURL", originalURL))
 		return err
 	}
 	_, err = file.WriteString(string(jsonData) + "\n")
 	if err != nil {
+		logger.Logger.Error("Error writing to file", zap.Error(err), zap.String("path", filePath), zap.String("data", string(jsonData)))
 		return err
 	}
-	err = file.Sync()
-	//time.Sleep(time.Second * 5)
-	return err
+	errSync := file.Sync()
+	if errSync != nil {
+		logger.Logger.Error("Error syncing file", zap.Error(errSync), zap.String("path", filePath))
+		return errSync
+	}
+	logger.Logger.Info("Successfully wrote data to file", zap.String("path", filePath), zap.String("shortURL", shortURL), zap.String("originalURL", originalURL))
+	return nil
 }
 
 func generateShortID() string {
