@@ -22,13 +22,6 @@ func main() {
 	cfg := config.Load()
 
 	logger.InitializeLogger(cfg)
-	defer func() {
-		if err := logger.Logger.Sync(); err != nil {
-			logger.Logger.Error("Failed to sync logger on exit", zap.Error(err))
-		}
-	}()
-	logger.Logger.Info("Loaded configuration", zap.String("config", cfg.String()))
-
 	// Инициализируем InMemoryStorage как основное хранилище
 	memStorage := storage.NewInMemoryStorage()
 	var persistentStorage *storage.FileStorage
@@ -37,7 +30,6 @@ func main() {
 	if envPath := os.Getenv("FILE_STORAGE_PATH"); envPath != "" {
 		fileStoragePath = envPath // Перезаписываем, если переменная окружения установлена
 	}
-
 	if fileStoragePath != "" {
 		persistentStorage = storage.NewFileStorage(fileStoragePath)
 		logger.Logger.Info("Using FileStorage path:", zap.String("path", fileStoragePath))
@@ -50,7 +42,6 @@ func main() {
 		} else {
 			logger.Logger.Info("Data loaded from file to in-memory storage")
 		}
-
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
 			defer ticker.Stop()
@@ -62,7 +53,6 @@ func main() {
 				}
 			}
 		}()
-
 		defer func() {
 			if err := persistentStorage.SaveAllFromMemory(memStorage); err != nil {
 				logger.Logger.Error("Error saving data from memory to file on exit", zap.Error(err))
@@ -73,25 +63,21 @@ func main() {
 	} else {
 		logger.Logger.Info("Using only in-memory storage")
 	}
-
 	svc := service.NewURLService(memStorage)
 	h := handlers.NewHandlers(svc)
 	r := chi.NewRouter()
-
 	r.Use(logger.Middleware(logger.Logger))
 	r.Use(chiMiddleware.RequestID)
 	r.Use(chiMiddleware.RealIP)
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.Timeout(60 * time.Second))
 	r.Use(middleware.GzipResponse)
-
 	r.Route("/", func(r chi.Router) {
 		r.Use(middleware.GzipRequest)
 		r.Post("/", h.HandlePost(cfg))
 		r.Post("/api/shorten", h.HandleAPIShorten(cfg))
 	})
 	r.Get("/{shortID}", h.HandleGet())
-
 	logger.Logger.Info("Starting server", zap.String("address", cfg.ServerAddress), zap.String("baseURL", cfg.BaseURL))
 	if err := http.ListenAndServe(cfg.ServerAddress, r); err != nil {
 		logger.Logger.Fatal("Failed to start server", zap.Error(err))
