@@ -20,6 +20,7 @@ func main() {
 	rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	cfg := config.Load()
+
 	logger.InitializeLogger(cfg)
 	logger.Logger.Info("Loaded configuration", zap.String("config", cfg.String()))
 	logger.Logger.Info("Config values:",
@@ -29,17 +30,20 @@ func main() {
 		zap.String("LogLevel", cfg.LogLevel),
 		zap.String("LogFormat", cfg.LogFormat),
 	)
-	// Инициализируем InMemoryStorage как основное хранилище
+
+	var store service.ShortURLCreatorGetter // Интерфейс для хранилища
 	memStorage := storage.NewInMemoryStorage()
+	store = memStorage // По умолчанию используем in-memory
+
 	var persistentStorage *storage.FileStorage
-	fileStoragePath := cfg.FileStoragePath // Получаем значение из конфигурации как значение по умолчанию
+	fileStoragePath := cfg.FileStoragePath
 
 	if envPath := os.Getenv("FILE_STORAGE_PATH"); envPath != "" {
-		fileStoragePath = envPath // Перезаписываем, если переменная окружения установлена
+		fileStoragePath = envPath
 	}
 	if fileStoragePath != "" {
 		persistentStorage = storage.NewFileStorage(fileStoragePath)
-		logger.Logger.Info("Using FileStorage path:", zap.String("path", fileStoragePath))
+		store = persistentStorage
 
 		successful, failed, err := persistentStorage.LoadAllToMemory(memStorage)
 		if err != nil {
@@ -70,15 +74,18 @@ func main() {
 	} else {
 		logger.Logger.Info("Using only in-memory storage")
 	}
-	svc := service.NewURLService(memStorage)
+
+	svc := service.NewURLService(store) // Инициализируем сервис с выбранным хранилищем
 	h := handlers.NewHandlers(svc)
 	r := chi.NewRouter()
+
 	r.Use(logger.Middleware(logger.Logger))
 	r.Use(chiMiddleware.RequestID)
 	r.Use(chiMiddleware.RealIP)
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.Timeout(60 * time.Second))
 	r.Use(middleware.GzipResponse)
+
 	r.Route("/", func(r chi.Router) {
 		r.Use(middleware.GzipRequest)
 		r.Post("/", h.HandlePost(cfg))
