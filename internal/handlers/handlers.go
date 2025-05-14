@@ -72,9 +72,11 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 		}
 
 		shortID, err := h.Service.CreateShortURL(originalURL) // Используем метод интерфейса
+		var conflictErr *storage.ErrConflict                  // Объявляем conflictErr здесь
+
 		if err != nil {
-			var conflictErr *storage.ErrConflict
 			if errors.As(err, &conflictErr) {
+				w.Header().Set("Content-Type", "application/json") // Устанавливаем заголовок
 				w.WriteHeader(http.StatusConflict)
 				response := ShortenResponse{
 					Result: fmt.Sprintf("%s/%s", cfg.BaseURL, conflictErr.ExistingShortID),
