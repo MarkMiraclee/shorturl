@@ -56,7 +56,7 @@ func TestHandleAPIShorten(t *testing.T) {
 	h := NewHandlers(mockSvc)
 
 	router := chi.NewRouter()
-	router.Post("/api/shorten", h.HandleAPIShorten(cfg))
+	router.Post("/api/shorten", h.HandleAPIShortenBatch(cfg))
 
 	tests := []struct {
 		name           string
