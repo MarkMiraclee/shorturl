@@ -44,6 +44,49 @@ type ShortenResponse struct {
 	Result string `json:"result"`
 }
 
+func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req ShortenRequest
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
+		defer func() {
+			if errClose := r.Body.Close(); errClose != nil {
+				logger.Logger.Error("Error closing request body", zap.Error(errClose))
+			}
+		}()
+
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		originalURL := req.URL
+		if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
+			http.Error(w, "Invalid URL format", http.StatusBadRequest)
+			return
+		}
+
+		shortID, err := h.Service.CreateShortURL(originalURL) // Используем метод интерфейса
+		if err != nil {
+			http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
+			return
+		}
+
+		response := ShortenResponse{
+			Result: fmt.Sprintf("%s/%s", cfg.BaseURL, shortID),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			logger.Logger.Error("Error writing JSON response", zap.Error(err))
+		}
+	}
+}
+
 // HandleAPIShortenBatch обрабатывает POST-запросы к /api/shorten/batch для пакетного сокращения URL (JSON).
 func (h *Handlers) HandleAPIShortenBatch(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

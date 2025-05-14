@@ -103,7 +103,7 @@ func main() {
 		r.Use(middleware.GzipRequest)
 		r.Post("/", h.HandlePost(cfg))
 	})
-	r.Post("/api/shorten", h.HandleAPIShortenBatch(cfg))
+	r.Post("/api/shorten", h.HandleAPIShorten(cfg))
 	r.Post("/api/shorten/batch", h.HandleAPIShortenBatch(cfg))
 	r.Get("/{shortID}", h.HandleGet())
 
