@@ -99,10 +99,9 @@ func main() {
 	r.Use(chiMiddleware.Timeout(60 * time.Second))
 	r.Use(middleware.GzipResponse)
 
-	r.Route("/", func(r chi.Router) {
-		r.Use(middleware.GzipRequest)
-		r.Post("/", h.HandlePost(cfg))
-		r.Post("/api/shorten", h.HandleAPIShorten(cfg))
+	r.Route("/api/shorten", func(r chi.Router) {
+		r.Post("/", h.HandleAPIShortenBatch(cfg))
+		r.Post("/batch", h.HandleAPIShortenBatch(cfg))
 	})
 	r.Get("/{shortID}", h.HandleGet())
 

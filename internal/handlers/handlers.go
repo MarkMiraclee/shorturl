@@ -21,6 +21,16 @@ type Handlers struct {
 	Service service.URLShortener
 }
 
+type BatchShortenRequest struct {
+	CorrelationID string `json:"correlation_id"`
+	OriginalURL   string `json:"original_url"`
+}
+
+type BatchShortenResponse struct {
+	CorrelationID string `json:"correlation_id"`
+	ShortURL      string `json:"short_url"`
+}
+
 // NewHandlers создает и возвращает новый экземпляр Handlers с заданным сервисом.
 func NewHandlers(svc service.URLShortener) *Handlers {
 	return &Handlers{Service: svc}
@@ -34,46 +44,46 @@ type ShortenResponse struct {
 	Result string `json:"result"`
 }
 
-// HandleAPIShorten обрабатывает POST-запросы к /api/shorten для сокращения URL (JSON).
-func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
+// HandleAPIShortenBatch обрабатывает POST-запросы к /api/shorten/batch для пакетного сокращения URL (JSON).
+func (h *Handlers) HandleAPIShortenBatch(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req ShortenRequest
+		var requests []BatchShortenRequest
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "Failed to read request body", http.StatusBadRequest)
 			return
 		}
-		defer func() {
-			if errClose := r.Body.Close(); errClose != nil {
-				logger.Logger.Error("Error closing request body", zap.Error(errClose))
-			}
-		}()
+		defer r.Body.Close()
 
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &requests); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
 
-		originalURL := req.URL
-		if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
-			http.Error(w, "Invalid URL format", http.StatusBadRequest)
-			return
-		}
+		responses := make([]BatchShortenResponse, len(requests))
+		for i, req := range requests {
+			if !strings.HasPrefix(req.OriginalURL, "http://") && !strings.HasPrefix(req.OriginalURL, "https://") {
+				http.Error(w, fmt.Sprintf("Invalid URL format for correlation_id: %s", req.CorrelationID), http.StatusBadRequest)
+				return // Прерываем обработку всего пакета, если хотя бы один URL невалиден. Решим, как лучше обрабатывать ошибки позже.
+			}
 
-		shortID, err := h.Service.CreateShortURL(originalURL) // Используем метод интерфейса
-		if err != nil {
-			http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
-			return
-		}
+			shortID, err := h.Service.CreateShortURL(req.OriginalURL)
+			if err != nil {
+				logger.Logger.Error("Failed to create short URL for batch", zap.Error(err), zap.String("correlation_id", req.CorrelationID), zap.String("original_url", req.OriginalURL))
+				http.Error(w, "Failed to create short URL for batch", http.StatusInternalServerError)
+				return // Прерываем обработку всего пакета при ошибке создания.
+			}
 
-		response := ShortenResponse{
-			Result: fmt.Sprintf("%s/%s", cfg.BaseURL, shortID),
+			responses[i] = BatchShortenResponse{
+				CorrelationID: req.CorrelationID,
+				ShortURL:      fmt.Sprintf("%s/%s", cfg.BaseURL, shortID),
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			logger.Logger.Error("Error writing JSON response", zap.Error(err))
+		if err := json.NewEncoder(w).Encode(responses); err != nil {
+			logger.Logger.Error("Error writing JSON response for batch", zap.Error(err))
 		}
 	}
 }
