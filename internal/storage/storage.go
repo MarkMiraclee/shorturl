@@ -17,6 +17,16 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// ErrConflict указывает на нарушение уникальности для оригинального URL.
+// Включает существующий короткий ID.
+type ErrConflict struct {
+	ExistingShortID string
+}
+
+func (e *ErrConflict) Error() string {
+	return fmt.Sprintf("original URL already exists, existing short ID: %s", e.ExistingShortID)
+}
+
 type DatabaseStorage struct {
 	db *sql.DB
 }
@@ -37,7 +47,7 @@ func NewDatabaseStorage(dsn string) (*DatabaseStorage, error) {
 	_, err = db.ExecContext(context.Background(), `
 		CREATE TABLE IF NOT EXISTS urls (
 			short_id TEXT PRIMARY KEY,
-			original_url TEXT NOT NULL
+			original_url TEXT NOT NULL UNIQUE -- Added UNIQUE constraint
 		);
 	`)
 	if err != nil {
@@ -49,14 +59,48 @@ func NewDatabaseStorage(dsn string) (*DatabaseStorage, error) {
 }
 
 func (s *DatabaseStorage) CreateShortURL(originalURL string) (string, error) {
-	shortID := generateShortID()
-	_, err := s.db.ExecContext(context.Background(),
-		"INSERT INTO urls (short_id, original_url) VALUES ($1, $2)",
-		shortID, originalURL)
+	candidateShortID := generateShortID()
+
+	tx, err := s.db.BeginTx(context.Background(), nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to insert URL: %w", err)
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	return shortID, nil
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(context.Background(),
+		`INSERT INTO urls (short_id, original_url) VALUES ($1, $2)
+		 ON CONFLICT (original_url) DO NOTHING`,
+		candidateShortID, originalURL)
+
+	if err != nil {
+		return "", fmt.Errorf("failed to execute insert on conflict: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return "", fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected > 0 {
+		if err := tx.Commit(); err != nil {
+			return "", fmt.Errorf("failed to commit transaction for new insert: %w", err)
+		}
+		return candidateShortID, nil
+	}
+
+	var existingShortID string
+	err = tx.QueryRowContext(context.Background(),
+		"SELECT short_id FROM urls WHERE original_url = $1",
+		originalURL).Scan(&existingShortID)
+
+	if err != nil {
+		return "", fmt.Errorf("conflict occurred but failed to retrieve existing short_id: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("failed to commit transaction for conflict case: %w", err)
+	}
+	return existingShortID, &ErrConflict{ExistingShortID: existingShortID}
 }
 
 func (s *DatabaseStorage) GetOriginalURL(shortID string) (string, error) {

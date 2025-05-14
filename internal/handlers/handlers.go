@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"shorturl/internal/config"
 	"shorturl/internal/logger"
 	"shorturl/internal/service"
+	"shorturl/internal/storage"
 	"strings"
 
 	"go.uber.org/zap"
@@ -71,8 +73,20 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 
 		shortID, err := h.Service.CreateShortURL(originalURL) // Используем метод интерфейса
 		if err != nil {
-			http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
-			return
+			var conflictErr *storage.ErrConflict
+			if errors.As(err, &conflictErr) {
+				w.WriteHeader(http.StatusConflict)
+				response := ShortenResponse{
+					Result: fmt.Sprintf("%s/%s", cfg.BaseURL, conflictErr.ExistingShortID),
+				}
+				if err := json.NewEncoder(w).Encode(response); err != nil {
+					logger.Logger.Error("Error writing JSON response", zap.Error(err))
+				}
+				return
+			} else {
+				http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		response := ShortenResponse{
@@ -107,7 +121,7 @@ func (h *Handlers) HandleAPIShortenBatch(cfg *config.Config) http.HandlerFunc {
 		for i, req := range requests {
 			if !strings.HasPrefix(req.OriginalURL, "http://") && !strings.HasPrefix(req.OriginalURL, "https://") {
 				http.Error(w, fmt.Sprintf("Invalid URL format for correlation_id: %s", req.CorrelationID), http.StatusBadRequest)
-				return // Прерываем обработку всего пакета, если хотя бы один URL невалиден. Решим, как лучше обрабатывать ошибки позже.
+				return // Прерываем обработку всего пакета, если хотя бы один URL невалиден
 			}
 
 			shortID, err := h.Service.CreateShortURL(req.OriginalURL)
@@ -152,8 +166,19 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 		}
 		shortID, err := h.Service.CreateShortURL(originalURL) // Используем метод интерфейса
 		if err != nil {
-			http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
-			return
+			var conflictErr *storage.ErrConflict
+			if errors.As(err, &conflictErr) {
+				w.Header().Set("Content-Type", "text/plain")
+				w.WriteHeader(http.StatusConflict)
+				_, err = fmt.Fprintf(w, "%s/%s", cfg.BaseURL, conflictErr.ExistingShortID)
+				if err != nil {
+					logger.Logger.Error("Error writing conflict response", zap.Error(err))
+				}
+				return
+			} else {
+				http.Error(w, "Failed to create short URL", http.StatusInternalServerError)
+				return
+			}
 		}
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusCreated)
