@@ -6,7 +6,6 @@ import (
 	"go.uber.org/zap"
 	"math/rand"
 	"net/http"
-	"os"
 	"shorturl/internal/config"
 	"shorturl/internal/handlers"
 	"shorturl/internal/logger"
@@ -36,19 +35,20 @@ func main() {
 
 	if cfg.DatabaseDSN != "" {
 		dbStorage, err := storage.NewDatabaseStorage(cfg.DatabaseDSN)
-		if err != nil {
-			logger.Logger.Fatal("Failed to initialize database storage", zap.Error(err))
-			os.Exit(1)
-			return // Добавляем return для избежания дальнейшего выполнения
+		if err == nil {
+			store = dbStorage
+			defer func() {
+				if err := dbStorage.Close(); err != nil {
+					logger.Logger.Error("Error closing database connection", zap.Error(err))
+				}
+			}()
+			logger.Logger.Info("Using PostgreSQL database storage")
+		} else {
+			logger.Logger.Error("Failed to initialize database storage, falling back to file or memory", zap.Error(err))
 		}
-		store = dbStorage
-		defer func() {
-			if err := dbStorage.Close(); err != nil {
-				logger.Logger.Error("Error closing database connection", zap.Error(err))
-			}
-		}()
-		logger.Logger.Info("Using PostgreSQL database storage")
-	} else if cfg.FileStoragePath != "" {
+	}
+
+	if store == nil && cfg.FileStoragePath != "" {
 		memStorage := storage.NewInMemoryStorage()
 		persistentStorage := storage.NewFileStorage(cfg.FileStoragePath)
 		store = persistentStorage
@@ -80,7 +80,9 @@ func main() {
 			}
 		}()
 		logger.Logger.Info("Using file storage")
-	} else {
+	}
+
+	if store == nil {
 		memStorage := storage.NewInMemoryStorage()
 		store = memStorage // По умолчанию используем in-memory
 		logger.Logger.Info("Using only in-memory storage")

@@ -33,7 +33,18 @@ func NewDatabaseStorage(dsn string) (*DatabaseStorage, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	logger.Logger.Info("Successfully connected to PostgreSQL")
+	// Проверяем и создаем таблицу urls, если она не существует
+	_, err = db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS urls (
+			short_id TEXT PRIMARY KEY,
+			original_url TEXT NOT NULL
+		);
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create table: %w", err)
+	}
+
+	logger.Logger.Info("Successfully connected to PostgreSQL and ensured table 'urls' exists")
 	return &DatabaseStorage{db: db}, nil
 }
 
