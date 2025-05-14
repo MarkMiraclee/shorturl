@@ -29,20 +29,28 @@ func main() {
 		zap.String("FileStoragePath", cfg.FileStoragePath),
 		zap.String("LogLevel", cfg.LogLevel),
 		zap.String("LogFormat", cfg.LogFormat),
+		zap.String("DatabaseDSN", cfg.DatabaseDSN),
 	)
 
 	var store service.ShortURLCreatorGetter // Интерфейс для хранилища
-	memStorage := storage.NewInMemoryStorage()
-	store = memStorage // По умолчанию используем in-memory
 
-	var persistentStorage *storage.FileStorage
-	fileStoragePath := cfg.FileStoragePath
-
-	if envPath := os.Getenv("FILE_STORAGE_PATH"); envPath != "" {
-		fileStoragePath = envPath
-	}
-	if fileStoragePath != "" {
-		persistentStorage = storage.NewFileStorage(fileStoragePath)
+	if cfg.DatabaseDSN != "" {
+		dbStorage, err := storage.NewDatabaseStorage(cfg.DatabaseDSN)
+		if err != nil {
+			logger.Logger.Fatal("Failed to initialize database storage", zap.Error(err))
+			os.Exit(1)
+			return // Добавляем return для избежания дальнейшего выполнения
+		}
+		store = dbStorage
+		defer func() {
+			if err := dbStorage.Close(); err != nil {
+				logger.Logger.Error("Error closing database connection", zap.Error(err))
+			}
+		}()
+		logger.Logger.Info("Using PostgreSQL database storage")
+	} else if cfg.FileStoragePath != "" {
+		memStorage := storage.NewInMemoryStorage()
+		persistentStorage := storage.NewFileStorage(cfg.FileStoragePath)
 		store = persistentStorage
 
 		successful, failed, err := persistentStorage.LoadAllToMemory(memStorage)
@@ -71,7 +79,10 @@ func main() {
 				logger.Logger.Info("Data saved from memory to file on exit")
 			}
 		}()
+		logger.Logger.Info("Using file storage")
 	} else {
+		memStorage := storage.NewInMemoryStorage()
+		store = memStorage // По умолчанию используем in-memory
 		logger.Logger.Info("Using only in-memory storage")
 	}
 
@@ -92,6 +103,22 @@ func main() {
 		r.Post("/api/shorten", h.HandleAPIShorten(cfg))
 	})
 	r.Get("/{shortID}", h.HandleGet())
+
+	// Добавляем новый хендлер /ping
+	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+		if dbStorage, ok := store.(*storage.DatabaseStorage); ok {
+			if err := dbStorage.Ping(); err != nil {
+				logger.Logger.Error("Database ping failed", zap.Error(err))
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Если используется in-memory или file storage, возвращаем 200 OK
+		w.WriteHeader(http.StatusOK)
+	})
+
 	logger.Logger.Info("Starting server", zap.String("address", cfg.ServerAddress), zap.String("baseURL", cfg.BaseURL))
 	if err := http.ListenAndServe(cfg.ServerAddress, r); err != nil {
 		logger.Logger.Fatal("Failed to start server", zap.Error(err))

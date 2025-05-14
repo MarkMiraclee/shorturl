@@ -2,7 +2,10 @@ package storage
 
 import (
 	"bufio"
+	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go.uber.org/zap"
 	"math/rand"
@@ -10,13 +13,61 @@ import (
 	"shorturl/internal/logger"
 	"sync"
 	"time"
+
+	_ "github.com/lib/pq"
 )
 
-// URLPair представляет собой пару короткого и оригинального URL.
-type URLPair struct {
-	ID          string `json:"id"`
-	ShortURL    string `json:"short_url"`
-	OriginalURL string `json:"original_url"`
+type DatabaseStorage struct {
+	db *sql.DB
+}
+
+// NewDatabaseStorage создает и возвращает новый экземпляр DatabaseStorage.
+func NewDatabaseStorage(dsn string) (*DatabaseStorage, error) {
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Проверяем соединение с базой данных
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	logger.Logger.Info("Successfully connected to PostgreSQL")
+	return &DatabaseStorage{db: db}, nil
+}
+
+func (s *DatabaseStorage) CreateShortURL(originalURL string) (string, error) {
+	shortID := generateShortID()
+	_, err := s.db.ExecContext(context.Background(),
+		"INSERT INTO urls (short_id, original_url) VALUES ($1, $2)",
+		shortID, originalURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to insert URL: %w", err)
+	}
+	return shortID, nil
+}
+
+func (s *DatabaseStorage) GetOriginalURL(shortID string) (string, error) {
+	var originalURL string
+	err := s.db.QueryRowContext(context.Background(),
+		"SELECT original_url FROM urls WHERE short_id = $1",
+		shortID).Scan(&originalURL)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil // Возвращаем nil, nil, как и InMemoryStorage/FileStorage
+		}
+		return "", fmt.Errorf("failed to get original URL: %w", err)
+	}
+	return originalURL, nil
+}
+
+func (s *DatabaseStorage) Ping() error {
+	return s.db.PingContext(context.Background())
+}
+
+func (s *DatabaseStorage) Close() error {
+	return s.db.Close()
 }
 
 // InMemoryStorage представляет собой реализацию хранилища в памяти.
@@ -68,6 +119,13 @@ func (s *InMemoryStorage) GetData() map[string]string {
 		dataCopy[k] = v
 	}
 	return dataCopy
+}
+
+// URLPair представляет собой пару короткого и оригинального URL.
+type URLPair struct {
+	ID          string `json:"id"`
+	ShortURL    string `json:"short_url"`
+	OriginalURL string `json:"original_url"`
 }
 
 // FileStorage представляет собой реализацию хранилища в файле.
