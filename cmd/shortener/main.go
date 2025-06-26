@@ -99,6 +99,7 @@ func main() {
 	r.Use(chiMiddleware.Recoverer)
 	r.Use(chiMiddleware.Timeout(60 * time.Second))
 	r.Use(middleware.GzipResponse)
+	r.Use(middleware.Auth)
 
 	r.Route("/", func(r chi.Router) {
 		r.Use(middleware.GzipRequest)
@@ -106,6 +107,7 @@ func main() {
 	})
 	r.Post("/api/shorten", h.HandleAPIShorten(cfg))
 	r.Post("/api/shorten/batch", h.HandleAPIShortenBatch(cfg))
+	r.Get("/api/user/urls", h.HandleGetUserURLs(cfg))
 	r.Get("/{shortID}", h.HandleGet())
 
 	// Добавляем новый хендлер /ping

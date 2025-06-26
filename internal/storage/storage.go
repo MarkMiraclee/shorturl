@@ -57,19 +57,25 @@ func NewDatabaseStorage(dsn string) (*DatabaseStorage, error) {
 	// Проверяем и создаем таблицу urls, если она не существует
 	_, err = db.ExecContext(context.Background(), `
 		CREATE TABLE IF NOT EXISTS urls (
-			short_url TEXT PRIMARY KEY,
-			original_url TEXT NOT NULL UNIQUE 
+			short_url    TEXT PRIMARY KEY,
+			original_url TEXT NOT NULL UNIQUE,
+			user_id      TEXT
 		);
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create or check table: %w", err)
 	}
 
+	_, err = db.ExecContext(context.Background(), `CREATE INDEX IF NOT EXISTS user_id_idx ON urls (user_id);`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create index: %w", err)
+	}
+
 	logger.Logger.Info("Successfully connected to PostgreSQL and ensured table 'urls' exists")
 	return &DatabaseStorage{db: db}, nil
 }
 
-func (s *DatabaseStorage) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
+func (s *DatabaseStorage) CreateShortURL(ctx context.Context, userID, originalURL string) (string, error) {
 	candidateShortID := generateShortID()
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -83,9 +89,9 @@ func (s *DatabaseStorage) CreateShortURL(ctx context.Context, originalURL string
 	}()
 
 	result, err := tx.ExecContext(ctx,
-		`INSERT INTO urls (short_url, original_url) VALUES ($1, $2)
+		`INSERT INTO urls (short_url, original_url, user_id) VALUES ($1, $2, $3)
 		 ON CONFLICT (original_url) DO NOTHING`,
-		candidateShortID, originalURL)
+		candidateShortID, originalURL, userID)
 
 	if err != nil {
 		return "", fmt.Errorf("failed to execute insert on conflict: %w", err)
@@ -132,6 +138,30 @@ func (s *DatabaseStorage) GetOriginalURL(ctx context.Context, shortID string) (s
 	return originalURL, nil
 }
 
+func (s *DatabaseStorage) GetURLsByUserID(ctx context.Context, userID string) ([]URLPair, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT short_url, original_url FROM urls WHERE user_id = $1", userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query urls by user id: %w", err)
+	}
+	defer rows.Close()
+
+	var urls []URLPair
+	for rows.Next() {
+		var pair URLPair
+		pair.UserID = userID
+		if err := rows.Scan(&pair.ShortURL, &pair.OriginalURL); err != nil {
+			return nil, fmt.Errorf("failed to scan url pair: %w", err)
+		}
+		urls = append(urls, pair)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration error: %w", err)
+	}
+
+	return urls, nil
+}
+
 func (s *DatabaseStorage) PingContext(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
@@ -143,36 +173,52 @@ func (s *DatabaseStorage) Close() error {
 // InMemoryStorage представляет собой реализацию хранилища в памяти.
 type InMemoryStorage struct {
 	mu   sync.RWMutex
-	urls map[string]string
+	urls map[string]URLPair
 }
 
 // NewInMemoryStorage создает и возвращает новый экземпляр InMemoryStorage.
 func NewInMemoryStorage() *InMemoryStorage {
 	return &InMemoryStorage{
-		urls: make(map[string]string),
+		urls: make(map[string]URLPair),
 	}
 }
 
-func (s *InMemoryStorage) CreateShortURL(_ context.Context, originalURL string) (string, error) {
+func (s *InMemoryStorage) CreateShortURL(_ context.Context, userID, originalURL string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	shortID := generateShortID()
-	s.urls[shortID] = originalURL
+	s.urls[shortID] = URLPair{
+		ShortURL:    shortID,
+		OriginalURL: originalURL,
+		UserID:      userID,
+	}
 	return shortID, nil
 }
 
 func (s *InMemoryStorage) GetOriginalURL(_ context.Context, shortID string) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	url, ok := s.urls[shortID]
+	pair, ok := s.urls[shortID]
 	if !ok {
 		return "", nil
 	}
-	return url, nil
+	return pair.OriginalURL, nil
+}
+
+func (s *InMemoryStorage) GetURLsByUserID(_ context.Context, userID string) ([]URLPair, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var userURLs []URLPair
+	for _, pair := range s.urls {
+		if pair.UserID == userID {
+			userURLs = append(userURLs, pair)
+		}
+	}
+	return userURLs, nil
 }
 
 // Merge принимает данные из другой мапы и объединяет их с текущей
-func (s *InMemoryStorage) Merge(data map[string]string) {
+func (s *InMemoryStorage) Merge(data map[string]URLPair) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k, v := range data {
@@ -181,10 +227,10 @@ func (s *InMemoryStorage) Merge(data map[string]string) {
 }
 
 // GetData возвращает копию текущих данных
-func (s *InMemoryStorage) GetData() map[string]string {
+func (s *InMemoryStorage) GetData() map[string]URLPair {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	dataCopy := make(map[string]string)
+	dataCopy := make(map[string]URLPair)
 	for k, v := range s.urls {
 		dataCopy[k] = v
 	}
@@ -196,44 +242,57 @@ type URLPair struct {
 	UUID        string `json:"id"`
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
+	UserID      string `json:"user_id,omitempty"`
 }
 
 // FileStorage представляет собой реализацию хранилища в файле.
 type FileStorage struct {
 	mu       sync.RWMutex
-	urls     map[string]string // Временно храним для SaveAllFromMemory
+	urls     map[string]URLPair // Временно храним для SaveAllFromMemory
 	filePath string
 }
 
 // NewFileStorage создает и возвращает новый экземпляр FileStorage.
 func NewFileStorage(filePath string) *FileStorage {
 	s := &FileStorage{
-		urls:     make(map[string]string),
+		urls:     make(map[string]URLPair),
 		filePath: filePath,
 	}
 	return s
 }
 
-func (s *FileStorage) CreateShortURL(_ context.Context, originalURL string) (string, error) {
+func (s *FileStorage) CreateShortURL(_ context.Context, userID, originalURL string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	shortID := generateShortID()
-	err := s.appendToFile(s.filePath, shortID, originalURL)
+	err := s.appendToFile(s.filePath, userID, shortID, originalURL)
 	if err != nil {
 		return "", err
 	}
-	s.urls[shortID] = originalURL
+	s.urls[shortID] = URLPair{UserID: userID, ShortURL: shortID, OriginalURL: originalURL}
 	return shortID, nil
 }
 
 func (s *FileStorage) GetOriginalURL(_ context.Context, shortID string) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	url, ok := s.urls[shortID]
+	pair, ok := s.urls[shortID]
 	if !ok {
 		return "", nil
 	}
-	return url, nil
+	return pair.OriginalURL, nil
+}
+
+func (s *FileStorage) GetURLsByUserID(_ context.Context, userID string) ([]URLPair, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var userURLs []URLPair
+	for _, pair := range s.urls {
+		if pair.UserID == userID {
+			userURLs = append(userURLs, pair)
+		}
+	}
+	return userURLs, nil
 }
 
 // LoadAllToMemory загружает все данные из файла в InMemoryStorage и возвращает информацию об ошибках
@@ -248,7 +307,7 @@ func (s *FileStorage) LoadAllToMemory(memStorage *InMemoryStorage) (int, int, er
 		}
 	}()
 
-	data := make(map[string]string)
+	data := make(map[string]URLPair)
 	scanner := bufio.NewScanner(file)
 	successfulLoads := 0
 	failedLoads := 0
@@ -265,7 +324,7 @@ func (s *FileStorage) LoadAllToMemory(memStorage *InMemoryStorage) (int, int, er
 			}
 			continue
 		}
-		data[pair.ShortURL] = pair.OriginalURL
+		data[pair.ShortURL] = pair
 		successfulLoads++
 	}
 	if err := scanner.Err(); err != nil {
@@ -299,10 +358,11 @@ func (s *FileStorage) SaveAllFromMemory(memStorage *InMemoryStorage) error {
 	}()
 
 	encoder := json.NewEncoder(file)
-	for shortURL, originalURL := range data {
+	for _, pairData := range data {
 		pair := URLPair{
-			ShortURL:    shortURL,
-			OriginalURL: originalURL,
+			ShortURL:    pairData.ShortURL,
+			OriginalURL: pairData.OriginalURL,
+			UserID:      pairData.UserID,
 		}
 		if err := encoder.Encode(pair); err != nil {
 			return err
@@ -311,7 +371,7 @@ func (s *FileStorage) SaveAllFromMemory(memStorage *InMemoryStorage) error {
 	return nil
 }
 
-func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL string) error {
+func (s *FileStorage) appendToFile(filePath, userID, shortURL, originalURL string) error {
 	logger.Logger.Info("Attempting to write to file", zap.String("path", filePath), zap.String("shortURL", shortURL), zap.String("originalURL", originalURL))
 	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
@@ -329,6 +389,7 @@ func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL
 
 	pair := URLPair{
 		UUID:        uuid.NewString(),
+		UserID:      userID,
 		ShortURL:    shortURL,
 		OriginalURL: originalURL,
 	}

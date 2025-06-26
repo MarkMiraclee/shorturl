@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"shorturl/internal/config"
 	"shorturl/internal/handlers"
+	"shorturl/internal/storage"
 	"shorturl/internal/service"
 	"strings"
 	"testing"
@@ -17,25 +18,35 @@ import (
 
 // MockURLService заглушка для тестирования, реализует интерфейс service.URLShortener.
 type MockURLService struct {
-	URLs map[string]string
+	URLs map[string]storage.URLPair
 }
 
-func (m *MockURLService) CreateShortURL(_ context.Context, originalURL string) (string, error) {
+func (m *MockURLService) CreateShortURL(_ context.Context, userID, originalURL string) (string, error) {
 	shortID := generateMockShortID()
-	m.URLs[shortID] = originalURL
+	m.URLs[shortID] = storage.URLPair{UserID: userID, OriginalURL: originalURL, ShortURL: shortID}
 	return shortID, nil
 }
 
 func (m *MockURLService) GetOriginalURL(_ context.Context, shortID string) (string, error) {
-	originalURL, ok := m.URLs[shortID]
+	pair, ok := m.URLs[shortID]
 	if !ok {
 		return "", fmt.Errorf("URL not found")
 	}
-	return originalURL, nil
+	return pair.OriginalURL, nil
+}
+
+func (m *MockURLService) GetURLsByUserID(_ context.Context, userID string) ([]storage.URLPair, error) {
+	var result []storage.URLPair
+	for _, pair := range m.URLs {
+		if pair.UserID == userID {
+			result = append(result, pair)
+		}
+	}
+	return result, nil
 }
 
 func NewMockURLService() *MockURLService {
-	return &MockURLService{URLs: make(map[string]string)}
+	return &MockURLService{URLs: make(map[string]storage.URLPair)}
 }
 
 func NewHandlers(svc service.URLShortener) *handlers.Handlers {
@@ -142,7 +153,7 @@ func TestHandlePost(t *testing.T) {
 // TestHandleGet проверяет обработчик GET-запросов.
 func TestHandleGet(t *testing.T) {
 	mockSvc := NewMockURLService()
-	mockSvc.URLs = map[string]string{generateMockShortID(): "http://example.com"}
+	mockSvc.URLs = map[string]storage.URLPair{generateMockShortID(): {OriginalURL: "http://example.com"}}
 	h := NewHandlers(mockSvc)
 
 	rr := httptest.NewRecorder()

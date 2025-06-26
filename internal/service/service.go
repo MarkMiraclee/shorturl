@@ -23,8 +23,9 @@ func (e *ErrConflict) Error() string {
 
 // ShortURLCreatorGetter определяет интерфейс для создания и получения коротких URL.
 type ShortURLCreatorGetter interface {
-	CreateShortURL(ctx context.Context, originalURL string) (string, error)
+	CreateShortURL(ctx context.Context, userID, originalURL string) (string, error)
 	GetOriginalURL(ctx context.Context, shortID string) (string, error)
+	GetURLsByUserID(ctx context.Context, userID string) ([]storage.URLPair, error)
 }
 
 // PersistentStorage определяет интерфейс для хранилищ с возможностью сохранения/загрузки в файл.
@@ -41,8 +42,9 @@ type URLStorage interface {
 
 // URLShortener определяет интерфейс сервиса для сокращения URL.
 type URLShortener interface {
-	CreateShortURL(ctx context.Context, originalURL string) (string, error)
+	CreateShortURL(ctx context.Context, userID, originalURL string) (string, error)
 	GetOriginalURL(ctx context.Context, shortID string) (string, error)
+	GetURLsByUserID(ctx context.Context, userID string) ([]storage.URLPair, error)
 }
 
 // URLService представляет собой реализацию сервиса сокращения URL.
@@ -55,8 +57,8 @@ func NewURLService(storage ShortURLCreatorGetter) *URLService {
 	return &URLService{storage: storage}
 }
 
-func (s *URLService) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
-	shortID, err := s.storage.CreateShortURL(ctx, originalURL)
+func (s *URLService) CreateShortURL(ctx context.Context, userID, originalURL string) (string, error) {
+	shortID, err := s.storage.CreateShortURL(ctx, userID, originalURL)
 	if err != nil {
 		var storageConflict *storage.ErrConflict
 		if errors.As(err, &storageConflict) {
@@ -69,4 +71,8 @@ func (s *URLService) CreateShortURL(ctx context.Context, originalURL string) (st
 
 func (s *URLService) GetOriginalURL(ctx context.Context, shortID string) (string, error) {
 	return s.storage.GetOriginalURL(ctx, shortID)
+}
+
+func (s *URLService) GetURLsByUserID(ctx context.Context, userID string) ([]storage.URLPair, error) {
+	return s.storage.GetURLsByUserID(ctx, userID)
 }

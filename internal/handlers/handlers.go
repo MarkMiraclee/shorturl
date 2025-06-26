@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"shorturl/internal/config"
 	"shorturl/internal/logger"
+	"shorturl/internal/middleware"
 	"shorturl/internal/service"
 	"strings"
 
@@ -45,6 +46,11 @@ type ShortenResponse struct {
 	Result string `json:"result"`
 }
 
+type UserURLResponse struct {
+	ShortURL    string `json:"short_url"`
+	OriginalURL string `json:"original_url"`
+}
+
 func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req ShortenRequest
@@ -70,7 +76,14 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		shortID, err := h.Service.CreateShortURL(r.Context(), originalURL) // Используем метод интерфейса
+		userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+		if !ok {
+			logger.Logger.Error("userID not found in context")
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		shortID, err := h.Service.CreateShortURL(r.Context(), userID, originalURL) // Используем метод интерфейса
 		var conflictErr *service.ErrConflict                               // Объявляем conflictErr здесь
 
 		if err != nil {
@@ -129,7 +142,14 @@ func (h *Handlers) HandleAPIShortenBatch(cfg *config.Config) http.HandlerFunc {
 				return // Прерываем обработку всего пакета, если хотя бы один URL невалиден
 			}
 
-			shortID, err := h.Service.CreateShortURL(r.Context(), req.OriginalURL)
+			userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+			if !ok {
+				logger.Logger.Error("userID not found in context")
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			shortID, err := h.Service.CreateShortURL(r.Context(), userID, req.OriginalURL)
 			if err != nil {
 				logger.Logger.Error("Failed to create short URL for batch", zap.Error(err), zap.String("correlation_id", req.CorrelationID), zap.String("original_url", req.OriginalURL))
 				http.Error(w, "Failed to create short URL for batch", http.StatusInternalServerError)
@@ -169,7 +189,15 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 			http.Error(w, "Invalid URL format", http.StatusBadRequest)
 			return
 		}
-		shortID, err := h.Service.CreateShortURL(r.Context(), originalURL) // Используем метод интерфейса
+
+		userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+		if !ok {
+			logger.Logger.Error("userID not found in context")
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		shortID, err := h.Service.CreateShortURL(r.Context(), userID, originalURL) // Используем метод интерфейса
 		if err != nil {
 			var conflictErr *service.ErrConflict
 			if errors.As(err, &conflictErr) {
@@ -214,5 +242,40 @@ func (h *Handlers) HandleGet() http.HandlerFunc {
 		}
 		w.Header().Set("Location", originalURL)
 		w.WriteHeader(http.StatusTemporaryRedirect)
+	}
+}
+
+func (h *Handlers) HandleGetUserURLs(cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+		if !ok || userID == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		userURLs, err := h.Service.GetURLsByUserID(r.Context(), userID)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if len(userURLs) == 0 {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		response := make([]UserURLResponse, len(userURLs))
+		for i, urlPair := range userURLs {
+			response[i] = UserURLResponse{
+				ShortURL:    fmt.Sprintf("%s/%s", cfg.BaseURL, urlPair.ShortURL),
+				OriginalURL: urlPair.OriginalURL,
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			logger.Logger.Error("Error writing JSON response for user URLs", zap.Error(err))
+		}
 	}
 }
