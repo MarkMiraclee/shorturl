@@ -20,13 +20,13 @@ type MockURLService struct {
 	URLs map[string]string
 }
 
-func (m *MockURLService) CreateShortURL(originalURL string) (string, error) {
+func (m *MockURLService) CreateShortURL(_ context.Context, originalURL string) (string, error) {
 	shortID := generateMockShortID()
 	m.URLs[shortID] = originalURL
 	return shortID, nil
 }
 
-func (m *MockURLService) GetOriginalURL(shortID string) (string, error) {
+func (m *MockURLService) GetOriginalURL(_ context.Context, shortID string) (string, error) {
 	originalURL, ok := m.URLs[shortID]
 	if !ok {
 		return "", fmt.Errorf("URL not found")

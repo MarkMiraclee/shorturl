@@ -10,7 +10,6 @@ import (
 	"shorturl/internal/config"
 	"shorturl/internal/logger"
 	"shorturl/internal/service"
-	"shorturl/internal/storage"
 	"strings"
 
 	"go.uber.org/zap"
@@ -71,15 +70,15 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		shortID, err := h.Service.CreateShortURL(originalURL) // Используем метод интерфейса
-		var conflictErr *storage.ErrConflict                  // Объявляем conflictErr здесь
+		shortID, err := h.Service.CreateShortURL(r.Context(), originalURL) // Используем метод интерфейса
+		var conflictErr *service.ErrConflict                               // Объявляем conflictErr здесь
 
 		if err != nil {
 			if errors.As(err, &conflictErr) {
 				w.Header().Set("Content-Type", "application/json") // Устанавливаем заголовок
 				w.WriteHeader(http.StatusConflict)
 				response := ShortenResponse{
-					Result: fmt.Sprintf("%s/%s", cfg.BaseURL, conflictErr.ExistingShortID),
+					Result: fmt.Sprintf("%s/%s", cfg.BaseURL, shortID),
 				}
 				if err := json.NewEncoder(w).Encode(response); err != nil {
 					logger.Logger.Error("Error writing JSON response", zap.Error(err))
@@ -112,7 +111,11 @@ func (h *Handlers) HandleAPIShortenBatch(cfg *config.Config) http.HandlerFunc {
 			http.Error(w, "Failed to read request body", http.StatusBadRequest)
 			return
 		}
-		defer r.Body.Close()
+		defer func() {
+			if err := r.Body.Close(); err != nil {
+				logger.Logger.Error("error closing request body", zap.Error(err))
+			}
+		}()
 
 		if err := json.Unmarshal(body, &requests); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -126,7 +129,7 @@ func (h *Handlers) HandleAPIShortenBatch(cfg *config.Config) http.HandlerFunc {
 				return // Прерываем обработку всего пакета, если хотя бы один URL невалиден
 			}
 
-			shortID, err := h.Service.CreateShortURL(req.OriginalURL)
+			shortID, err := h.Service.CreateShortURL(r.Context(), req.OriginalURL)
 			if err != nil {
 				logger.Logger.Error("Failed to create short URL for batch", zap.Error(err), zap.String("correlation_id", req.CorrelationID), zap.String("original_url", req.OriginalURL))
 				http.Error(w, "Failed to create short URL for batch", http.StatusInternalServerError)
@@ -166,13 +169,13 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 			http.Error(w, "Invalid URL format", http.StatusBadRequest)
 			return
 		}
-		shortID, err := h.Service.CreateShortURL(originalURL) // Используем метод интерфейса
+		shortID, err := h.Service.CreateShortURL(r.Context(), originalURL) // Используем метод интерфейса
 		if err != nil {
-			var conflictErr *storage.ErrConflict
+			var conflictErr *service.ErrConflict
 			if errors.As(err, &conflictErr) {
 				w.Header().Set("Content-Type", "text/plain")
 				w.WriteHeader(http.StatusConflict)
-				_, err = fmt.Fprintf(w, "%s/%s", cfg.BaseURL, conflictErr.ExistingShortID)
+				_, err = fmt.Fprintf(w, "%s/%s", cfg.BaseURL, shortID)
 				if err != nil {
 					logger.Logger.Error("Error writing conflict response", zap.Error(err))
 				}
@@ -204,7 +207,7 @@ func (h *Handlers) HandleGet() http.HandlerFunc {
 				logger.Logger.Error("Error closing request body", zap.Error(errClose))
 			}
 		}()
-		originalURL, err := h.Service.GetOriginalURL(shortID) // Используем метод интерфейса
+		originalURL, err := h.Service.GetOriginalURL(r.Context(), shortID) // Используем метод интерфейса
 		if err != nil {
 			http.Error(w, "Invalid or non-existent short URL", http.StatusBadRequest)
 			return

@@ -1,9 +1,30 @@
 package service
 
+import (
+	"context"
+	"errors"
+	"fmt"
+	"shorturl/internal/storage"
+)
+
+// ErrConflict is a service-level error for URL conflicts.
+type ErrConflict struct {
+	ExistingShortID string
+}
+
+// NewErrConflict creates a new service-level conflict error.
+func NewErrConflict(existingShortID string) *ErrConflict {
+	return &ErrConflict{ExistingShortID: existingShortID}
+}
+
+func (e *ErrConflict) Error() string {
+	return fmt.Sprintf("original URL already exists, existing short ID: %s", e.ExistingShortID)
+}
+
 // ShortURLCreatorGetter определяет интерфейс для создания и получения коротких URL.
 type ShortURLCreatorGetter interface {
-	CreateShortURL(originalURL string) (string, error)
-	GetOriginalURL(shortID string) (string, error)
+	CreateShortURL(ctx context.Context, originalURL string) (string, error)
+	GetOriginalURL(ctx context.Context, shortID string) (string, error)
 }
 
 // PersistentStorage определяет интерфейс для хранилищ с возможностью сохранения/загрузки в файл.
@@ -20,8 +41,8 @@ type URLStorage interface {
 
 // URLShortener определяет интерфейс сервиса для сокращения URL.
 type URLShortener interface {
-	CreateShortURL(originalURL string) (string, error)
-	GetOriginalURL(shortID string) (string, error)
+	CreateShortURL(ctx context.Context, originalURL string) (string, error)
+	GetOriginalURL(ctx context.Context, shortID string) (string, error)
 }
 
 // URLService представляет собой реализацию сервиса сокращения URL.
@@ -34,10 +55,18 @@ func NewURLService(storage ShortURLCreatorGetter) *URLService {
 	return &URLService{storage: storage}
 }
 
-func (s *URLService) CreateShortURL(originalURL string) (string, error) {
-	return s.storage.CreateShortURL(originalURL)
+func (s *URLService) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
+	shortID, err := s.storage.CreateShortURL(ctx, originalURL)
+	if err != nil {
+		var storageConflict *storage.ErrConflict
+		if errors.As(err, &storageConflict) {
+			return shortID, NewErrConflict(shortID)
+		}
+		return "", err
+	}
+	return shortID, nil
 }
 
-func (s *URLService) GetOriginalURL(shortID string) (string, error) {
-	return s.storage.GetOriginalURL(shortID)
+func (s *URLService) GetOriginalURL(ctx context.Context, shortID string) (string, error) {
+	return s.storage.GetOriginalURL(ctx, shortID)
 }

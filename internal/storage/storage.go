@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"math/rand"
 	"os"
@@ -21,6 +22,10 @@ import (
 // Включает существующий короткий ID.
 type ErrConflict struct {
 	ExistingShortID string
+}
+
+func NewErrConflict(existingShortID string) *ErrConflict {
+	return &ErrConflict{ExistingShortID: existingShortID}
 }
 
 func (e *ErrConflict) Error() string {
@@ -38,37 +43,47 @@ func NewDatabaseStorage(dsn string) (*DatabaseStorage, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
 	// Проверяем соединение с базой данных
-	if err := db.Ping(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	// Проверяем и создаем таблицу urls, если она не существует
 	_, err = db.ExecContext(context.Background(), `
 		CREATE TABLE IF NOT EXISTS urls (
-			short_id TEXT PRIMARY KEY,
-			original_url TEXT NOT NULL UNIQUE -- Added UNIQUE constraint
+			short_url TEXT PRIMARY KEY,
+			original_url TEXT NOT NULL UNIQUE 
 		);
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create table: %w", err)
+		return nil, fmt.Errorf("failed to create or check table: %w", err)
 	}
 
 	logger.Logger.Info("Successfully connected to PostgreSQL and ensured table 'urls' exists")
 	return &DatabaseStorage{db: db}, nil
 }
 
-func (s *DatabaseStorage) CreateShortURL(originalURL string) (string, error) {
+func (s *DatabaseStorage) CreateShortURL(ctx context.Context, originalURL string) (string, error) {
 	candidateShortID := generateShortID()
 
-	tx, err := s.db.BeginTx(context.Background(), nil)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			logger.Logger.Error("failed to rollback transaction", zap.Error(err))
+		}
+	}()
 
-	result, err := tx.ExecContext(context.Background(),
-		`INSERT INTO urls (short_id, original_url) VALUES ($1, $2)
+	result, err := tx.ExecContext(ctx,
+		`INSERT INTO urls (short_url, original_url) VALUES ($1, $2)
 		 ON CONFLICT (original_url) DO NOTHING`,
 		candidateShortID, originalURL)
 
@@ -89,8 +104,8 @@ func (s *DatabaseStorage) CreateShortURL(originalURL string) (string, error) {
 	}
 
 	var existingShortID string
-	err = tx.QueryRowContext(context.Background(),
-		"SELECT short_id FROM urls WHERE original_url = $1",
+	err = tx.QueryRowContext(ctx,
+		"SELECT short_url FROM urls WHERE original_url = $1",
 		originalURL).Scan(&existingShortID)
 
 	if err != nil {
@@ -100,13 +115,13 @@ func (s *DatabaseStorage) CreateShortURL(originalURL string) (string, error) {
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("failed to commit transaction for conflict case: %w", err)
 	}
-	return existingShortID, &ErrConflict{ExistingShortID: existingShortID}
+	return existingShortID, NewErrConflict(existingShortID)
 }
 
-func (s *DatabaseStorage) GetOriginalURL(shortID string) (string, error) {
+func (s *DatabaseStorage) GetOriginalURL(ctx context.Context, shortID string) (string, error) {
 	var originalURL string
-	err := s.db.QueryRowContext(context.Background(),
-		"SELECT original_url FROM urls WHERE short_id = $1",
+	err := s.db.QueryRowContext(ctx,
+		"SELECT original_url FROM urls WHERE short_url = $1",
 		shortID).Scan(&originalURL)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -117,8 +132,8 @@ func (s *DatabaseStorage) GetOriginalURL(shortID string) (string, error) {
 	return originalURL, nil
 }
 
-func (s *DatabaseStorage) Ping() error {
-	return s.db.PingContext(context.Background())
+func (s *DatabaseStorage) PingContext(ctx context.Context) error {
+	return s.db.PingContext(ctx)
 }
 
 func (s *DatabaseStorage) Close() error {
@@ -138,7 +153,7 @@ func NewInMemoryStorage() *InMemoryStorage {
 	}
 }
 
-func (s *InMemoryStorage) CreateShortURL(originalURL string) (string, error) {
+func (s *InMemoryStorage) CreateShortURL(_ context.Context, originalURL string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	shortID := generateShortID()
@@ -146,7 +161,7 @@ func (s *InMemoryStorage) CreateShortURL(originalURL string) (string, error) {
 	return shortID, nil
 }
 
-func (s *InMemoryStorage) GetOriginalURL(shortID string) (string, error) {
+func (s *InMemoryStorage) GetOriginalURL(_ context.Context, shortID string) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	url, ok := s.urls[shortID]
@@ -178,7 +193,7 @@ func (s *InMemoryStorage) GetData() map[string]string {
 
 // URLPair представляет собой пару короткого и оригинального URL.
 type URLPair struct {
-	ID          string `json:"id"`
+	UUID        string `json:"id"`
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
 }
@@ -199,7 +214,7 @@ func NewFileStorage(filePath string) *FileStorage {
 	return s
 }
 
-func (s *FileStorage) CreateShortURL(originalURL string) (string, error) {
+func (s *FileStorage) CreateShortURL(_ context.Context, originalURL string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	shortID := generateShortID()
@@ -211,7 +226,7 @@ func (s *FileStorage) CreateShortURL(originalURL string) (string, error) {
 	return shortID, nil
 }
 
-func (s *FileStorage) GetOriginalURL(shortID string) (string, error) {
+func (s *FileStorage) GetOriginalURL(_ context.Context, shortID string) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	url, ok := s.urls[shortID]
@@ -313,6 +328,7 @@ func (s *FileStorage) appendToFile(filePath string, shortURL string, originalURL
 	}()
 
 	pair := URLPair{
+		UUID:        uuid.NewString(),
 		ShortURL:    shortURL,
 		OriginalURL: originalURL,
 	}

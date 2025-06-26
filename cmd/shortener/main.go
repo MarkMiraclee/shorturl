@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
@@ -109,8 +110,10 @@ func main() {
 
 	// Добавляем новый хендлер /ping
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
+		defer cancel()
 		if dbStorage, ok := store.(*storage.DatabaseStorage); ok {
-			if err := dbStorage.Ping(); err != nil {
+			if err := dbStorage.PingContext(ctx); err != nil {
 				logger.Logger.Error("Database ping failed", zap.Error(err))
 				w.WriteHeader(http.StatusInternalServerError)
 				return
