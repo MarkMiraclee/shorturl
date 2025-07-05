@@ -143,7 +143,11 @@ func (s *DatabaseStorage) GetURLsByUserID(ctx context.Context, userID string) ([
 	if err != nil {
 		return nil, fmt.Errorf("failed to query urls by user id: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			logger.Logger.Error("failed to close rows", zap.Error(err))
+		}
+	}()
 
 	var urls []URLPair
 	for rows.Next() {
@@ -283,7 +287,11 @@ func (s *FileStorage) loadFromFile() error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Logger.Error("failed to close file in loadFromFile", zap.Error(err))
+		}
+	}()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -303,7 +311,11 @@ func (s *FileStorage) appendToFile(pair *URLPair) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Logger.Error("failed to close file in appendToFile", zap.Error(err))
+		}
+	}()
 
 	pair.UUID = uuid.NewString()
 	encoder := json.NewEncoder(file)
