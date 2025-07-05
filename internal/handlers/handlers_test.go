@@ -8,13 +8,28 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"shorturl/internal/config"
 	"shorturl/internal/handlers"
+	"shorturl/internal/logger"
+	"shorturl/internal/middleware"
 	"shorturl/internal/service"
 	"shorturl/internal/storage"
 	"strings"
 	"testing"
 )
+
+func TestMain(m *testing.M) {
+	// Initialize logger for tests to avoid panic on logger.Logger.Error()
+	cfg := &config.Config{
+		LogLevel:  "info",
+		LogFormat: "text",
+	}
+	logger.InitializeLogger(cfg)
+
+	// Run tests
+	os.Exit(m.Run())
+}
 
 // MockURLService заглушка для тестирования, реализует интерфейс service.URLShortener.
 type MockURLService struct {
@@ -105,6 +120,8 @@ func TestHandleAPIShorten(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req, _ := http.NewRequest(http.MethodPost, "/api/shorten", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
+			ctx := context.WithValue(req.Context(), middleware.UserIDKey, "test-user")
+			req = req.WithContext(ctx)
 			rr := httptest.NewRecorder()
 			router.ServeHTTP(rr, req)
 
@@ -136,6 +153,8 @@ func TestHandlePost(t *testing.T) {
 	router.Post("/", h.HandlePost(cfg))
 
 	req, _ := http.NewRequest(http.MethodPost, "/", strings.NewReader("http://example.com"))
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, "test-user")
+	req = req.WithContext(ctx)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
