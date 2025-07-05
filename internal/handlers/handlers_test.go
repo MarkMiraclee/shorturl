@@ -10,8 +10,8 @@ import (
 	"net/http/httptest"
 	"shorturl/internal/config"
 	"shorturl/internal/handlers"
-	"shorturl/internal/storage"
 	"shorturl/internal/service"
+	"shorturl/internal/storage"
 	"strings"
 	"testing"
 )

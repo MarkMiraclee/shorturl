@@ -50,14 +50,14 @@ func Load() *Config {
 	var flagServerAddress string
 	var flagBaseURL string
 	var flagLogLevel string
-	var flagLogFormat string
+	var flagFileStoragePath string
 	var flagDatabaseDSN string
 
 	flag.StringVar(&flagServerAddress, "a", "localhost:8080", "HTTP server address")
 	flag.StringVar(&flagBaseURL, "b", "", "Base URL for shortened links")
 	flag.StringVar(&flagLogLevel, "l", "info", "Log level (debug, info, warn, error, fatal)")
-	flag.StringVar(&flagLogFormat, "f", "json", "Log format (text, json)")
 	flag.StringVar(&flagDatabaseDSN, "d", "", "Database connection string (DSN)")
+	flag.StringVar(&flagFileStoragePath, "f", "", "File storage path")
 
 	flag.Parse()
 
@@ -73,7 +73,11 @@ func Load() *Config {
 		cfg.BaseURL = flagBaseURL
 	}
 
-	cfg.FileStoragePath = envFileStoragePath
+	if envFileStoragePath != "" {
+		cfg.FileStoragePath = envFileStoragePath
+	} else {
+		cfg.FileStoragePath = flagFileStoragePath
+	}
 
 	if envLogLevel != "" {
 		cfg.LogLevel = envLogLevel
@@ -83,8 +87,6 @@ func Load() *Config {
 
 	if envLogFormat != "" {
 		cfg.LogFormat = envLogFormat
-	} else {
-		cfg.LogFormat = flagLogFormat
 	}
 
 	if envDatabaseDSN != "" {

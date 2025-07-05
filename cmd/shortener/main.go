@@ -52,7 +52,7 @@ func main() {
 	if store == nil && cfg.FileStoragePath != "" {
 		memStorage := storage.NewInMemoryStorage()
 		persistentStorage := storage.NewFileStorage(cfg.FileStoragePath)
-		store = persistentStorage
+		store = memStorage
 
 		successful, failed, err := persistentStorage.LoadAllToMemory(memStorage)
 		if err != nil {
@@ -80,7 +80,7 @@ func main() {
 				logger.Logger.Info("Data saved from memory to file on exit")
 			}
 		}()
-		logger.Logger.Info("Using file storage")
+		logger.Logger.Info("Using file storage with in-memory cache")
 	}
 
 	if store == nil {
@@ -101,12 +101,12 @@ func main() {
 	r.Use(middleware.GzipResponse)
 	r.Use(middleware.Auth)
 
-	r.Route("/", func(r chi.Router) {
+	r.Group(func(r chi.Router) {
 		r.Use(middleware.GzipRequest)
 		r.Post("/", h.HandlePost(cfg))
+		r.Post("/api/shorten", h.HandleAPIShorten(cfg))
+		r.Post("/api/shorten/batch", h.HandleAPIShortenBatch(cfg))
 	})
-	r.Post("/api/shorten", h.HandleAPIShorten(cfg))
-	r.Post("/api/shorten/batch", h.HandleAPIShortenBatch(cfg))
 	r.Get("/api/user/urls", h.HandleGetUserURLs(cfg))
 	r.Get("/{shortID}", h.HandleGet())
 
