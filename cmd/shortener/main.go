@@ -50,37 +50,12 @@ func main() {
 	}
 
 	if store == nil && cfg.FileStoragePath != "" {
-		memStorage := storage.NewInMemoryStorage()
-		persistentStorage := storage.NewFileStorage(cfg.FileStoragePath)
-		store = memStorage
-
-		successful, failed, err := persistentStorage.LoadAllToMemory(memStorage)
+		fileStorage, err := storage.NewFileStorage(cfg.FileStoragePath)
 		if err != nil {
-			logger.Logger.Error("Error loading data from file to memory", zap.Error(err), zap.Int("successful", successful), zap.Int("failed", failed))
-		} else if failed > 0 {
-			logger.Logger.Warn("Loaded data from file with some errors", zap.Int("successful", successful), zap.Int("failed", failed))
-		} else {
-			logger.Logger.Info("Data loaded from file to in-memory storage")
+			logger.Logger.Fatal("failed to initialize file storage", zap.Error(err))
 		}
-		go func() {
-			ticker := time.NewTicker(5 * time.Minute)
-			defer ticker.Stop()
-			for range ticker.C {
-				if err := persistentStorage.SaveAllFromMemory(memStorage); err != nil {
-					logger.Logger.Error("Error saving data from memory to file", zap.Error(err))
-				} else {
-					logger.Logger.Info("Data saved from memory to file")
-				}
-			}
-		}()
-		defer func() {
-			if err := persistentStorage.SaveAllFromMemory(memStorage); err != nil {
-				logger.Logger.Error("Error saving data from memory to file on exit", zap.Error(err))
-			} else {
-				logger.Logger.Info("Data saved from memory to file on exit")
-			}
-		}()
-		logger.Logger.Info("Using file storage with in-memory cache")
+		store = fileStorage
+		logger.Logger.Info("Using file storage")
 	}
 
 	if store == nil {

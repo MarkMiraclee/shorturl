@@ -217,26 +217,6 @@ func (s *InMemoryStorage) GetURLsByUserID(_ context.Context, userID string) ([]U
 	return userURLs, nil
 }
 
-// Merge принимает данные из другой мапы и объединяет их с текущей
-func (s *InMemoryStorage) Merge(data map[string]URLPair) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for k, v := range data {
-		s.urls[k] = v
-	}
-}
-
-// GetData возвращает копию текущих данных
-func (s *InMemoryStorage) GetData() map[string]URLPair {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	dataCopy := make(map[string]URLPair)
-	for k, v := range s.urls {
-		dataCopy[k] = v
-	}
-	return dataCopy
-}
-
 // URLPair представляет собой пару короткого и оригинального URL.
 type URLPair struct {
 	UUID        string `json:"id"`
@@ -248,28 +228,31 @@ type URLPair struct {
 // FileStorage представляет собой реализацию хранилища в файле.
 type FileStorage struct {
 	mu       sync.RWMutex
-	urls     map[string]URLPair // Временно храним для SaveAllFromMemory
+	urls     map[string]URLPair
 	filePath string
 }
 
 // NewFileStorage создает и возвращает новый экземпляр FileStorage.
-func NewFileStorage(filePath string) *FileStorage {
-	s := &FileStorage{
+func NewFileStorage(filePath string) (*FileStorage, error) {
+	fs := &FileStorage{
 		urls:     make(map[string]URLPair),
 		filePath: filePath,
 	}
-	return s
+	if err := fs.loadFromFile(); err != nil {
+		return nil, err
+	}
+	return fs, nil
 }
 
 func (s *FileStorage) CreateShortURL(_ context.Context, userID, originalURL string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	shortID := generateShortID()
-	err := s.appendToFile(s.filePath, userID, shortID, originalURL)
-	if err != nil {
+	pair := URLPair{UserID: userID, ShortURL: shortID, OriginalURL: originalURL}
+	if err := s.appendToFile(&pair); err != nil {
 		return "", err
 	}
-	s.urls[shortID] = URLPair{UserID: userID, ShortURL: shortID, OriginalURL: originalURL}
+	s.urls[shortID] = pair
 	return shortID, nil
 }
 
@@ -295,120 +278,40 @@ func (s *FileStorage) GetURLsByUserID(_ context.Context, userID string) ([]URLPa
 	return userURLs, nil
 }
 
-// LoadAllToMemory загружает все данные из файла в InMemoryStorage и возвращает информацию об ошибках
-func (s *FileStorage) LoadAllToMemory(memStorage *InMemoryStorage) (int, int, error) {
+func (s *FileStorage) loadFromFile() error {
 	file, err := os.OpenFile(s.filePath, os.O_RDONLY|os.O_CREATE, 0644)
 	if err != nil {
-		return 0, 0, err
+		return err
 	}
-	defer func() {
-		if err := file.Close(); err != nil {
-			logger.Logger.Error("Error closing file in LoadAllToMemory", zap.Error(err), zap.String("path", s.filePath))
-		}
-	}()
+	defer file.Close()
 
-	data := make(map[string]URLPair)
 	scanner := bufio.NewScanner(file)
-	successfulLoads := 0
-	failedLoads := 0
-	var firstError error
-
 	for scanner.Scan() {
 		line := scanner.Text()
 		var pair URLPair
 		if err := json.Unmarshal([]byte(line), &pair); err != nil {
-			logger.Logger.Warn("Error unmarshalling line in LoadAllToMemory", zap.Error(err), zap.String("line", line))
-			failedLoads++
-			if firstError == nil {
-				firstError = err // Запоминаем первую ошибку
-			}
+			logger.Logger.Warn("Error unmarshalling line from file storage", zap.Error(err), zap.String("line", line))
 			continue
 		}
-		data[pair.ShortURL] = pair
-		successfulLoads++
+		s.urls[pair.ShortURL] = pair
 	}
-	if err := scanner.Err(); err != nil {
-		return successfulLoads, failedLoads, err
-	}
-
-	memStorage.Merge(data)
-
-	var loadError error
-	if failedLoads > 0 {
-		loadError = fmt.Errorf("loaded %d records with %d errors", successfulLoads, failedLoads)
-	}
-
-	return successfulLoads, failedLoads, loadError
+	return scanner.Err()
 }
 
-// SaveAllFromMemory сохраняет все данные из InMemoryStorage в файл
-func (s *FileStorage) SaveAllFromMemory(memStorage *InMemoryStorage) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	data := memStorage.GetData()
-	file, err := os.OpenFile(s.filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644) // Перезаписываем файл
+func (s *FileStorage) appendToFile(pair *URLPair) error {
+	file, err := os.OpenFile(s.filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := file.Close(); err != nil {
-			logger.Logger.Error("Error closing file in SaveAllFromMemory", zap.Error(err), zap.String("path", s.filePath))
-		}
-	}()
+	defer file.Close()
 
+	pair.UUID = uuid.NewString()
 	encoder := json.NewEncoder(file)
-	for _, pairData := range data {
-		pair := URLPair{
-			ShortURL:    pairData.ShortURL,
-			OriginalURL: pairData.OriginalURL,
-			UserID:      pairData.UserID,
-		}
-		if err := encoder.Encode(pair); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
-func (s *FileStorage) appendToFile(filePath, userID, shortURL, originalURL string) error {
-	logger.Logger.Info("Attempting to write to file", zap.String("path", filePath), zap.String("shortURL", shortURL), zap.String("originalURL", originalURL))
-	file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-	if err != nil {
-		logger.Logger.Error("Error opening file for writing", zap.Error(err), zap.String("path", filePath))
-		return err
+	if err := encoder.Encode(pair); err != nil {
+		return fmt.Errorf("failed to encode URLPair to file: %w", err)
 	}
-	defer func() {
-		errClose := file.Close()
-		if errClose != nil {
-			logger.Logger.Error("Error closing file in appendToFile", zap.Error(errClose), zap.String("path", filePath))
-		} else {
-			logger.Logger.Info("Successfully closed file after writing", zap.String("path", filePath))
-		}
-	}()
 
-	pair := URLPair{
-		UUID:        uuid.NewString(),
-		UserID:      userID,
-		ShortURL:    shortURL,
-		OriginalURL: originalURL,
-	}
-	jsonData, err := json.Marshal(pair)
-	if err != nil {
-		logger.Logger.Error("Error marshalling JSON", zap.Error(err), zap.String("shortURL", shortURL), zap.String("originalURL", originalURL))
-		return err
-	}
-	_, err = file.WriteString(string(jsonData) + "\n")
-	if err != nil {
-		logger.Logger.Error("Error writing to file", zap.Error(err), zap.String("path", filePath), zap.String("data", string(jsonData)))
-		return err
-	}
-	errSync := file.Sync()
-	if errSync != nil {
-		logger.Logger.Error("Error syncing file", zap.Error(errSync), zap.String("path", filePath))
-		return errSync
-	}
-	logger.Logger.Info("Successfully wrote data to file", zap.String("path", filePath), zap.String("shortURL", shortURL), zap.String("originalURL", originalURL))
 	return nil
 }
 
