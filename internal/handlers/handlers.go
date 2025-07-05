@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"shorturl/internal/middleware"
 	"shorturl/internal/service"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -84,7 +86,7 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 		}
 
 		shortID, err := h.Service.CreateShortURL(r.Context(), userID, originalURL) // Используем метод интерфейса
-		var conflictErr *service.ErrConflict                               // Объявляем conflictErr здесь
+		var conflictErr *service.ErrConflict                                       // Объявляем conflictErr здесь
 
 		if err != nil {
 			if errors.As(err, &conflictErr) {
@@ -277,5 +279,20 @@ func (h *Handlers) HandleGetUserURLs(cfg *config.Config) http.HandlerFunc {
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			logger.Logger.Error("Error writing JSON response for user URLs", zap.Error(err))
 		}
+	}
+}
+
+func (h *Handlers) HandlePing() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
+		defer cancel()
+
+		if err := h.Service.Ping(ctx); err != nil {
+			logger.Logger.Error("Database ping failed", zap.Error(err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
 	}
 }

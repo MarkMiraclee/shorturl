@@ -45,16 +45,22 @@ type URLShortener interface {
 	CreateShortURL(ctx context.Context, userID, originalURL string) (string, error)
 	GetOriginalURL(ctx context.Context, shortID string) (string, error)
 	GetURLsByUserID(ctx context.Context, userID string) ([]storage.URLPair, error)
+	Ping(ctx context.Context) error
+}
+
+type Pinger interface {
+	PingContext(ctx context.Context) error
 }
 
 // URLService представляет собой реализацию сервиса сокращения URL.
 type URLService struct {
-	storage ShortURLCreatorGetter // Сервис зависит только от необходимого интерфейса
+	storage ShortURLCreatorGetter
+	pinger  Pinger
 }
 
 // NewURLService создает и возвращает новый экземпляр URLService.
-func NewURLService(storage ShortURLCreatorGetter) *URLService {
-	return &URLService{storage: storage}
+func NewURLService(storage ShortURLCreatorGetter, pinger Pinger) *URLService {
+	return &URLService{storage: storage, pinger: pinger}
 }
 
 func (s *URLService) CreateShortURL(ctx context.Context, userID, originalURL string) (string, error) {
@@ -75,4 +81,11 @@ func (s *URLService) GetOriginalURL(ctx context.Context, shortID string) (string
 
 func (s *URLService) GetURLsByUserID(ctx context.Context, userID string) ([]storage.URLPair, error) {
 	return s.storage.GetURLsByUserID(ctx, userID)
+}
+
+func (s *URLService) Ping(ctx context.Context) error {
+	if s.pinger != nil {
+		return s.pinger.PingContext(ctx)
+	}
+	return nil
 }

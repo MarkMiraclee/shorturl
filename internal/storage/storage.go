@@ -308,11 +308,7 @@ func (s *FileStorage) appendToFile(pair *URLPair) error {
 	pair.UUID = uuid.NewString()
 	encoder := json.NewEncoder(file)
 
-	if err := encoder.Encode(pair); err != nil {
-		return fmt.Errorf("failed to encode URLPair to file: %w", err)
-	}
-
-	return nil
+	return encoder.Encode(pair)
 }
 
 func generateShortID() string {

@@ -34,6 +34,7 @@ func TestMain(m *testing.M) {
 // MockURLService заглушка для тестирования, реализует интерфейс service.URLShortener.
 type MockURLService struct {
 	URLs map[string]storage.URLPair
+	PingShouldError bool
 }
 
 func (m *MockURLService) CreateShortURL(_ context.Context, userID, originalURL string) (string, error) {
@@ -58,6 +59,13 @@ func (m *MockURLService) GetURLsByUserID(_ context.Context, userID string) ([]st
 		}
 	}
 	return result, nil
+}
+
+func (m *MockURLService) Ping(_ context.Context) error {
+	if m.PingShouldError {
+		return fmt.Errorf("ping error")
+	}
+	return nil
 }
 
 func NewMockURLService() *MockURLService {
