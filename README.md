@@ -1,32 +1,93 @@
-# go-musthave-shortener-tpl
+# URL Shortener Service
 
-Шаблон репозитория для трека «Сервис сокращения URL».
+A modern URL shortening service built with Go using clean architecture principles. Converts long URLs to short links with support for multiple storage backends and REST API.
 
-## Начало работы
+## Features
 
-1. Склонируйте репозиторий в любую подходящую директорию на вашем компьютере.
-2. В корне репозитория выполните команду `go mod init <name>` (где `<name>` — адрес вашего репозитория на GitHub без префикса `https://`) для создания модуля.
+- URL shortening with unique short IDs
+- Multiple storage backends (PostgreSQL, file, in-memory)
+- REST API with JSON and text formats
+- Batch URL shortening
+- User authentication with HMAC-signed cookies
+- Gzip compression for requests/responses
+- Structured logging with configurable levels
+- Health check endpoint
 
-## Обновление шаблона
+## Tech Stack
 
-Чтобы иметь возможность получать обновления автотестов и других частей шаблона, выполните команду:
+- **Language**: Go 1.24.1
+- **Router**: Chi v5
+- **Database**: PostgreSQL (optional)
+- **Logging**: Zap
+- **UUID**: Google UUID
+- **Architecture**: Clean Architecture
 
+## Getting Started
+
+### Prerequisites
+- Go 1.24.1+
+- PostgreSQL (optional)
+
+### Installation
+
+```bash
+git clone <your-repo-url>
+cd shorturl
+go mod download
 ```
-git remote add -m main template https://github.com/Yandex-Practicum/go-musthave-shortener-tpl.git
+
+### Running
+
+```bash
+# Basic (in-memory storage)
+go run cmd/shortener/main.go
+
+# With file storage
+go run cmd/shortener/main.go -f /path/to/storage.json
+
+# With PostgreSQL
+export DATABASE_DSN="postgres://username:password@localhost:5432/dbname?sslmode=disable"
+go run cmd/shortener/main.go
 ```
 
-Для обновления кода автотестов выполните команду:
+### Configuration
 
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SERVER_ADDRESS` | HTTP server address | `localhost:8080` |
+| `BASE_URL` | Base URL for short links | `http://localhost:8080` |
+| `DATABASE_DSN` | PostgreSQL connection string | - |
+| `FILE_STORAGE_PATH` | File storage path | - |
+
+### API Examples
+
+```bash
+# Shorten URL (text)
+curl -X POST http://localhost:8080/ \
+  -H "Content-Type: text/plain" \
+  -d "https://example.com/very-long-url"
+
+# Shorten URL (JSON)
+curl -X POST http://localhost:8080/api/shorten \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/very-long-url"}'
+
+# Get original URL
+curl http://localhost:8080/abc123
+
+# Health check
+curl http://localhost:8080/ping
 ```
-git fetch template && git checkout template/main .github
+
+## Testing
+
+```bash
+# Run all tests
+go test ./...
+
+# Run tests with coverage
+go test -cover ./...
+
+# Run specific package tests
+go test ./internal/handlers
 ```
-
-Затем добавьте полученные изменения в свой репозиторий.
-
-## Запуск автотестов
-
-Для успешного запуска автотестов называйте ветки `iter<number>`, где `<number>` — порядковый номер инкремента. Например, в ветке с названием `iter4` запустятся автотесты для инкрементов с первого по четвёртый.
-
-При мёрже ветки с инкрементом в основную ветку `main` будут запускаться все автотесты.
-
-Подробнее про локальный и автоматический запуск читайте в [README автотестов](https://github.com/Yandex-Practicum/go-autotests).
