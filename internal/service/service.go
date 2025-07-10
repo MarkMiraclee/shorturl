@@ -46,6 +46,7 @@ type URLShortener interface {
 	GetOriginalURL(ctx context.Context, shortID string) (string, error)
 	GetURLsByUserID(ctx context.Context, userID string) ([]storage.URLPair, error)
 	Ping(ctx context.Context) error
+	DeleteURLs(ctx context.Context, userID string, shortIDs []string) error
 }
 
 type Pinger interface {
@@ -83,9 +84,19 @@ func (s *URLService) GetURLsByUserID(ctx context.Context, userID string) ([]stor
 	return s.storage.GetURLsByUserID(ctx, userID)
 }
 
+func (s *URLService) DeleteURLs(ctx context.Context, userID string, shortIDs []string) error {
+	// TODO: реализовать удаление через storage
+	return nil
+}
+
 func (s *URLService) Ping(ctx context.Context) error {
 	if s.pinger != nil {
 		return s.pinger.PingContext(ctx)
 	}
+	return nil
+}
+
+// Close реализует io.Closer для URLService
+func (s *URLService) Close() error {
 	return nil
 }

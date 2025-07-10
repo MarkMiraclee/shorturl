@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-chi/chi/v5"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +16,8 @@ import (
 	"shorturl/internal/storage"
 	"strings"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func TestMain(m *testing.M) {
@@ -33,7 +34,7 @@ func TestMain(m *testing.M) {
 
 // MockURLService заглушка для тестирования, реализует интерфейс service.URLShortener.
 type MockURLService struct {
-	URLs map[string]storage.URLPair
+	URLs            map[string]storage.URLPair
 	PingShouldError bool
 }
 
@@ -65,6 +66,10 @@ func (m *MockURLService) Ping(_ context.Context) error {
 	if m.PingShouldError {
 		return fmt.Errorf("ping error")
 	}
+	return nil
+}
+
+func (m *MockURLService) DeleteURLs(_ context.Context, _ string, _ []string) error {
 	return nil
 }
 
