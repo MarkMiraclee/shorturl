@@ -17,7 +17,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/lib/pq"
-	_ "github.com/lib/pq"
 )
 
 // ErrConflict указывает на нарушение уникальности для оригинального URL.

@@ -21,14 +21,14 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// Initialize logger for tests to avoid panic on logger.Logger.Error()
+	// Инициализация логгера для тестов, чтобы избежать паники на logger.Logger.Error()
 	cfg := &config.Config{
 		LogLevel:  "info",
 		LogFormat: "text",
 	}
 	logger.InitializeLogger(cfg)
 
-	// Run tests
+	// Запуск тестов
 	os.Exit(m.Run())
 }
 
