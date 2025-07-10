@@ -1,26 +1,32 @@
 package main
 
 import (
-	"fmt"
-	"github.com/go-chi/chi/v5"
-	"log"
+	"go.uber.org/zap"
 	"net/http"
+	"shorturl/internal/app"
 	"shorturl/internal/config"
-	"shorturl/internal/handlers"
-	"shorturl/internal/service"
-	"shorturl/internal/storage"
+	"shorturl/internal/logger"
 )
 
 func main() {
-	cfg := config.Load() // Загрузка конфигурации приложения.
-	urlStorage := storage.NewInMemoryStorage()
-	svc := service.NewURLService(urlStorage) // Создание экземпляра сервиса для работы с URL.
-	h := handlers.NewHandlers(svc)           // Создание экземпляра обработчиков HTTP-запросов, передавая ему сервис.
-	r := chi.NewRouter()                     // Создание нового роутера chi.
-	r.Post("/", h.HandlePost(cfg))           // Определение маршрута для POST-запросов на корневой путь.
-	r.Get("/{shortID}", h.HandleGet())       // Определение маршрута для GET-запросов с параметром shortID.
+	cfg := config.Load()
 
-	fmt.Printf("Server address from config: %s\n", cfg.ServerAddress)
-	fmt.Printf("Starting server on %s\n", cfg.BaseURL)
-	log.Fatal(http.ListenAndServe(cfg.ServerAddress, r))
+	logger.InitializeLogger(cfg)
+
+	application, err := app.New(cfg)
+	if err != nil {
+		logger.Logger.Fatal("failed to create app", zap.Error(err))
+	}
+	if application.Closer != nil {
+		defer func() {
+			if err := application.Closer.Close(); err != nil {
+				logger.Logger.Error("failed to close resources", zap.Error(err))
+			}
+		}()
+	}
+
+	logger.Logger.Info("Starting server", zap.String("address", cfg.ServerAddress), zap.String("baseURL", cfg.BaseURL))
+	if err := http.ListenAndServe(cfg.ServerAddress, application.Router); err != nil {
+		logger.Logger.Fatal("Failed to start server", zap.Error(err))
+	}
 }
