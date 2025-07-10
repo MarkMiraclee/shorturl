@@ -7,15 +7,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
-	"go.uber.org/zap"
 	"math/rand"
 	"os"
 	"shorturl/internal/logger"
 	"sync"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/google/uuid"
+	"go.uber.org/zap"
+
+	"github.com/lib/pq"
 )
 
 // ErrConflict указывает на нарушение уникальности для оригинального URL.
@@ -31,6 +32,9 @@ func NewErrConflict(existingShortID string) *ErrConflict {
 func (e *ErrConflict) Error() string {
 	return fmt.Sprintf("original URL already exists, existing short ID: %s", e.ExistingShortID)
 }
+
+// ErrURLDeleted индикатор удаления URL
+var ErrURLDeleted = errors.New("url is deleted")
 
 type DatabaseStorage struct {
 	db *sql.DB
@@ -59,7 +63,8 @@ func NewDatabaseStorage(dsn string) (*DatabaseStorage, error) {
 		CREATE TABLE IF NOT EXISTS urls (
 			short_url    TEXT PRIMARY KEY,
 			original_url TEXT NOT NULL UNIQUE,
-			user_id      TEXT
+			user_id      TEXT,
+			is_deleted   BOOLEAN NOT NULL DEFAULT FALSE
 		);
 	`)
 	if err != nil {
@@ -126,20 +131,24 @@ func (s *DatabaseStorage) CreateShortURL(ctx context.Context, userID, originalUR
 
 func (s *DatabaseStorage) GetOriginalURL(ctx context.Context, shortID string) (string, error) {
 	var originalURL string
+	var isDeleted bool
 	err := s.db.QueryRowContext(ctx,
-		"SELECT original_url FROM urls WHERE short_url = $1",
-		shortID).Scan(&originalURL)
+		"SELECT original_url, is_deleted FROM urls WHERE short_url = $1",
+		shortID).Scan(&originalURL, &isDeleted)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", nil // Возвращаем nil, nil, как и InMemoryStorage/FileStorage
+			return "", nil
 		}
 		return "", fmt.Errorf("failed to get original URL: %w", err)
+	}
+	if isDeleted {
+		return "", ErrURLDeleted
 	}
 	return originalURL, nil
 }
 
 func (s *DatabaseStorage) GetURLsByUserID(ctx context.Context, userID string) ([]URLPair, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT short_url, original_url FROM urls WHERE user_id = $1", userID)
+	rows, err := s.db.QueryContext(ctx, "SELECT short_url, original_url FROM urls WHERE user_id = $1 AND is_deleted = FALSE", userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query urls by user id: %w", err)
 	}
@@ -164,6 +173,18 @@ func (s *DatabaseStorage) GetURLsByUserID(ctx context.Context, userID string) ([
 	}
 
 	return urls, nil
+}
+
+func (s *DatabaseStorage) DeleteUserURLs(ctx context.Context, userID string, shortIDs []string) error {
+	if len(shortIDs) == 0 {
+		return nil
+	}
+	query := `UPDATE urls SET is_deleted = TRUE WHERE user_id = $1 AND short_url = ANY($2)`
+	_, err := s.db.ExecContext(ctx, query, userID, pq.Array(shortIDs))
+	if err != nil {
+		return fmt.Errorf("failed to batch delete urls: %w", err)
+	}
+	return nil
 }
 
 func (s *DatabaseStorage) PingContext(ctx context.Context) error {
@@ -195,8 +216,23 @@ func (s *InMemoryStorage) CreateShortURL(_ context.Context, userID, originalURL 
 		ShortURL:    shortID,
 		OriginalURL: originalURL,
 		UserID:      userID,
+		DeletedFlag: false,
 	}
 	return shortID, nil
+}
+
+func (s *InMemoryStorage) DeleteUserURLs(_ context.Context, userID string, shortIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, shortID := range shortIDs {
+		if pair, ok := s.urls[shortID]; ok {
+			if pair.UserID == userID {
+				pair.DeletedFlag = true
+				s.urls[shortID] = pair
+			}
+		}
+	}
+	return nil
 }
 
 func (s *InMemoryStorage) GetOriginalURL(_ context.Context, shortID string) (string, error) {
@@ -206,6 +242,9 @@ func (s *InMemoryStorage) GetOriginalURL(_ context.Context, shortID string) (str
 	if !ok {
 		return "", nil
 	}
+	if pair.DeletedFlag {
+		return "", ErrURLDeleted
+	}
 	return pair.OriginalURL, nil
 }
 
@@ -214,7 +253,7 @@ func (s *InMemoryStorage) GetURLsByUserID(_ context.Context, userID string) ([]U
 	defer s.mu.RUnlock()
 	var userURLs []URLPair
 	for _, pair := range s.urls {
-		if pair.UserID == userID {
+		if pair.UserID == userID && !pair.DeletedFlag {
 			userURLs = append(userURLs, pair)
 		}
 	}
@@ -227,6 +266,7 @@ type URLPair struct {
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
 	UserID      string `json:"user_id,omitempty"`
+	DeletedFlag bool   `json:"-"`
 }
 
 // FileStorage представляет собой реализацию хранилища в файле.
@@ -252,12 +292,26 @@ func (s *FileStorage) CreateShortURL(_ context.Context, userID, originalURL stri
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	shortID := generateShortID()
-	pair := URLPair{UserID: userID, ShortURL: shortID, OriginalURL: originalURL}
+	pair := URLPair{UserID: userID, ShortURL: shortID, OriginalURL: originalURL, DeletedFlag: false}
 	if err := s.appendToFile(&pair); err != nil {
 		return "", err
 	}
 	s.urls[shortID] = pair
 	return shortID, nil
+}
+
+func (s *FileStorage) DeleteUserURLs(_ context.Context, userID string, shortIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, shortID := range shortIDs {
+		if pair, ok := s.urls[shortID]; ok {
+			if pair.UserID == userID {
+				pair.DeletedFlag = true
+				s.urls[shortID] = pair
+			}
+		}
+	}
+	return nil
 }
 
 func (s *FileStorage) GetOriginalURL(_ context.Context, shortID string) (string, error) {
@@ -267,6 +321,9 @@ func (s *FileStorage) GetOriginalURL(_ context.Context, shortID string) (string,
 	if !ok {
 		return "", nil
 	}
+	if pair.DeletedFlag {
+		return "", ErrURLDeleted
+	}
 	return pair.OriginalURL, nil
 }
 
@@ -275,7 +332,7 @@ func (s *FileStorage) GetURLsByUserID(_ context.Context, userID string) ([]URLPa
 	defer s.mu.RUnlock()
 	var userURLs []URLPair
 	for _, pair := range s.urls {
-		if pair.UserID == userID {
+		if pair.UserID == userID && !pair.DeletedFlag {
 			userURLs = append(userURLs, pair)
 		}
 	}

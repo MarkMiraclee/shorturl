@@ -2,11 +2,12 @@ package middleware
 
 import (
 	"compress/gzip"
-	"go.uber.org/zap"
 	"io"
 	"net/http"
 	"shorturl/internal/logger"
 	"strings"
+
+	"go.uber.org/zap"
 )
 
 type gzipResponseWriter struct {
@@ -28,7 +29,7 @@ func (w gzipResponseWriter) Flush() {
 	}
 }
 
-// GzipResponse middleware сжимает ответы
+// GzipResponse — middleware, сжимающий ответы
 func GzipResponse(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
@@ -54,7 +55,7 @@ func GzipResponse(next http.Handler) http.Handler {
 	})
 }
 
-// GzipRequest middleware распаковывает тело запроса
+// GzipRequest — middleware, распаковывающий тело запроса
 func GzipRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Content-Encoding") == "gzip" {

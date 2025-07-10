@@ -5,20 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/go-chi/chi/v5"
 	"io"
 	"net/http"
 	"shorturl/internal/config"
 	"shorturl/internal/logger"
 	"shorturl/internal/middleware"
 	"shorturl/internal/service"
+	"shorturl/internal/storage"
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"go.uber.org/zap"
 )
-
-const shortURLLength = 8
 
 // Handlers представляет собой структуру с обработчиками HTTP-запросов.
 type Handlers struct {
@@ -228,8 +228,8 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 func (h *Handlers) HandleGet() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		shortID := chi.URLParam(r, "shortID")
-		if len(shortID) != shortURLLength {
-			http.Error(w, fmt.Sprintf("Invalid short URL format (expected %d characters)", shortURLLength), http.StatusBadRequest)
+		if shortID == "" {
+			http.Error(w, "Short ID is required", http.StatusBadRequest)
 			return
 		}
 		defer func() {
@@ -239,11 +239,42 @@ func (h *Handlers) HandleGet() http.HandlerFunc {
 		}()
 		originalURL, err := h.Service.GetOriginalURL(r.Context(), shortID) // Используем метод интерфейса
 		if err != nil {
+			if errors.Is(err, storage.ErrURLDeleted) {
+				w.WriteHeader(http.StatusGone)
+				return
+			}
 			http.Error(w, "Invalid or non-existent short URL", http.StatusBadRequest)
 			return
 		}
-		w.Header().Set("Location", originalURL)
-		w.WriteHeader(http.StatusTemporaryRedirect)
+		http.Redirect(w, r, originalURL, http.StatusTemporaryRedirect)
+	}
+}
+
+func (h *Handlers) HandleDeleteUserURLs() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := r.Context().Value(middleware.UserIDKey).(string)
+		if !ok || userID == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var shortIDs []string
+		if err := json.NewDecoder(r.Body).Decode(&shortIDs); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if len(shortIDs) == 0 {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+
+		if err := h.Service.DeleteURLs(r.Context(), userID, shortIDs); err != nil {
+			http.Error(w, "Failed to schedule URL deletion", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusAccepted)
 	}
 }
 
