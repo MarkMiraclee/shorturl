@@ -29,7 +29,7 @@ func (w gzipResponseWriter) Flush() {
 	}
 }
 
-// GzipResponse — middleware, сжимающий ответы
+// GzipResponse middleware сжимает ответы
 func GzipResponse(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
@@ -55,7 +55,7 @@ func GzipResponse(next http.Handler) http.Handler {
 	})
 }
 
-// GzipRequest — middleware, распаковывающий тело запроса
+// GzipRequest middleware распаковывает тело запроса
 func GzipRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Content-Encoding") == "gzip" {

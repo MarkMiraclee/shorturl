@@ -54,6 +54,10 @@ type UserURLResponse struct {
 }
 
 func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
+	return h.handleAPIShorten(cfg)
+}
+
+func (h *Handlers) handleAPIShorten(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req ShortenRequest
 		body, err := io.ReadAll(r.Body)
@@ -85,12 +89,12 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		shortID, err := h.Service.CreateShortURL(r.Context(), userID, originalURL) // Используем метод интерфейса
-		var conflictErr *service.ErrConflict                                       // Объявляем conflictErr здесь
+		shortID, err := h.Service.CreateShortURL(r.Context(), userID, originalURL)
+		var conflictErr *service.ErrConflict
 
 		if err != nil {
 			if errors.As(err, &conflictErr) {
-				w.Header().Set("Content-Type", "application/json") // Устанавливаем заголовок
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusConflict)
 				response := ShortenResponse{
 					Result: fmt.Sprintf("%s/%s", cfg.BaseURL, shortID),
@@ -119,6 +123,10 @@ func (h *Handlers) HandleAPIShorten(cfg *config.Config) http.HandlerFunc {
 
 // HandleAPIShortenBatch обрабатывает POST-запросы к /api/shorten/batch для пакетного сокращения URL (JSON).
 func (h *Handlers) HandleAPIShortenBatch(cfg *config.Config) http.HandlerFunc {
+	return h.handleAPIShortenBatch(cfg)
+}
+
+func (h *Handlers) handleAPIShortenBatch(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var requests []BatchShortenRequest
 		body, err := io.ReadAll(r.Body)
@@ -141,7 +149,7 @@ func (h *Handlers) HandleAPIShortenBatch(cfg *config.Config) http.HandlerFunc {
 		for i, req := range requests {
 			if !strings.HasPrefix(req.OriginalURL, "http://") && !strings.HasPrefix(req.OriginalURL, "https://") {
 				http.Error(w, fmt.Sprintf("Invalid URL format for correlation_id: %s", req.CorrelationID), http.StatusBadRequest)
-				return // Прерываем обработку всего пакета, если хотя бы один URL невалиден
+				return
 			}
 
 			userID, ok := r.Context().Value(middleware.UserIDKey).(string)
@@ -155,7 +163,7 @@ func (h *Handlers) HandleAPIShortenBatch(cfg *config.Config) http.HandlerFunc {
 			if err != nil {
 				logger.Logger.Error("Failed to create short URL for batch", zap.Error(err), zap.String("correlation_id", req.CorrelationID), zap.String("original_url", req.OriginalURL))
 				http.Error(w, "Failed to create short URL for batch", http.StatusInternalServerError)
-				return // Прерываем обработку всего пакета при ошибке создания.
+				return
 			}
 
 			responses[i] = BatchShortenResponse{
@@ -174,6 +182,10 @@ func (h *Handlers) HandleAPIShortenBatch(cfg *config.Config) http.HandlerFunc {
 
 // HandlePost обрабатывает POST-запросы (текст).
 func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
+	return h.handlePost(cfg)
+}
+
+func (h *Handlers) handlePost(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -199,7 +211,7 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		shortID, err := h.Service.CreateShortURL(r.Context(), userID, originalURL) // Используем метод интерфейса
+		shortID, err := h.Service.CreateShortURL(r.Context(), userID, originalURL)
 		if err != nil {
 			var conflictErr *service.ErrConflict
 			if errors.As(err, &conflictErr) {
@@ -226,6 +238,10 @@ func (h *Handlers) HandlePost(cfg *config.Config) http.HandlerFunc {
 
 // HandleGet обрабатывает GET-запросы с параметром shortID
 func (h *Handlers) HandleGet() http.HandlerFunc {
+	return h.handleGet()
+}
+
+func (h *Handlers) handleGet() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		shortID := chi.URLParam(r, "shortID")
 		if shortID == "" {
@@ -237,7 +253,7 @@ func (h *Handlers) HandleGet() http.HandlerFunc {
 				logger.Logger.Error("Error closing request body", zap.Error(errClose))
 			}
 		}()
-		originalURL, err := h.Service.GetOriginalURL(r.Context(), shortID) // Используем метод интерфейса
+		originalURL, err := h.Service.GetOriginalURL(r.Context(), shortID)
 		if err != nil {
 			if errors.Is(err, storage.ErrURLDeleted) {
 				w.WriteHeader(http.StatusGone)
@@ -251,6 +267,10 @@ func (h *Handlers) HandleGet() http.HandlerFunc {
 }
 
 func (h *Handlers) HandleDeleteUserURLs() http.HandlerFunc {
+	return h.handleDeleteUserURLs()
+}
+
+func (h *Handlers) handleDeleteUserURLs() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := r.Context().Value(middleware.UserIDKey).(string)
 		if !ok || userID == "" {
@@ -279,6 +299,10 @@ func (h *Handlers) HandleDeleteUserURLs() http.HandlerFunc {
 }
 
 func (h *Handlers) HandleGetUserURLs(cfg *config.Config) http.HandlerFunc {
+	return h.handleGetUserURLs(cfg)
+}
+
+func (h *Handlers) handleGetUserURLs(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := r.Context().Value(middleware.UserIDKey).(string)
 		if !ok || userID == "" {
@@ -314,6 +338,10 @@ func (h *Handlers) HandleGetUserURLs(cfg *config.Config) http.HandlerFunc {
 }
 
 func (h *Handlers) HandlePing() http.HandlerFunc {
+	return h.handlePing()
+}
+
+func (h *Handlers) handlePing() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
 		defer cancel()
