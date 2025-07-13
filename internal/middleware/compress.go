@@ -2,11 +2,12 @@ package middleware
 
 import (
 	"compress/gzip"
-	"go.uber.org/zap"
 	"io"
 	"net/http"
 	"shorturl/internal/logger"
 	"strings"
+
+	"go.uber.org/zap"
 )
 
 type gzipResponseWriter struct {
